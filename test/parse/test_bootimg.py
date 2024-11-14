@@ -10,6 +10,7 @@ import subprocess
 from pmb.types import Bootimg
 
 from pmb.parse.bootimg import bootimg as parse_bootimg
+from pmb.helpers.pmaports import _find_apkbuilds
 
 
 """
@@ -72,6 +73,7 @@ def bootimg(progs: dict[str, str], tmp_path: Path) -> Callable:
 # Due to limitations in the test infrastructure (somehow we have to clone
 # all of pmaports for this!!) we stuff all the tests into one
 def test_bootimg(bootimg, pmb_args, pmaports):
+    _find_apkbuilds.cache_disable()
     bootimg_path = bootimg(base=0x80000000)
 
     # Header v0
