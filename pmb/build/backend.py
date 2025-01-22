@@ -257,6 +257,19 @@ def run_abuild(
         env["CHOST"] = str(arch)
         env["CBUILDROOT"] = "/mnt/sysroot"
         env["CFLAGS"] = "-Wl,-rpath-link=/mnt/sysroot/usr/lib"
+        match str(arch):
+            case "armhf" | "armv7":
+                env["GOARCH"] = "arm"
+            case "aarch64":
+                env["GOARCH"] = "arm64"
+            case "riscv64":
+                env["GOARCH"] = "riscv64"
+            case "ppc64le":
+                env["GOARCH"] = "ppc64le"
+            case "x86":
+                env["GOARCH"] = "386"
+            case "x86_64":
+                env["GOARCH"] = "amd64"
     elif cross == "crossdirect":
         env["PATH"] = ":".join([f"/native/usr/lib/crossdirect/{arch}", pmb.config.chroot_path])
     else:
