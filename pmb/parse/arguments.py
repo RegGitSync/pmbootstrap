@@ -76,8 +76,8 @@ def type_ondev_cp(val: str) -> list[str]:
     host_src = ret[0]
     if not os.path.exists(host_src):
         raise argparse.ArgumentTypeError(f"HOST_SRC not found: {host_src}")
-    if not os.path.isfile(host_src):
-        raise argparse.ArgumentTypeError(f"HOST_SRC is not a file: {host_src}")
+    # if not os.path.isfile(host_src):
+    #     raise argparse.ArgumentTypeError(f"HOST_SRC is not a file: {host_src}")
 
     chroot_dest = ret[1]
     if not chroot_dest.startswith("/"):
@@ -250,7 +250,7 @@ def arguments_install(subparser: argparse._SubParsersAction) -> None:
     )
     group.add_argument(
         "--cp",
-        dest="ondev_cp",
+        dest="cp",
         nargs="+",
         metavar="HOST_SRC:CHROOT_DEST",
         type=type_ondev_cp,
@@ -266,6 +266,19 @@ def arguments_install(subparser: argparse._SubParsersAction) -> None:
         " 'pmbootstrap install' run or by providing it"
         " as CHROOT_DEST with --cp",
         action="store_true",
+    )
+    group.add_argument(
+        "--initramfs",
+        dest="install_as_initramfs",
+        help="Pack the entire rootfs into an initramfs",
+        action="store_true",
+    )
+    group.add_argument(
+        "--enable",
+        dest="enable_services",
+        nargs="+",
+        help="List of services to enable by default",
+        default=[],
     )
 
     # Other

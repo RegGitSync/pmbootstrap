@@ -91,6 +91,7 @@ class PmbArgs(Namespace):
     disk: Path
     dry: bool
     efi: bool
+    enable_services: list[str]
     envkernel: bool
     export_folder: Path
     extra_space: str
@@ -111,6 +112,7 @@ class PmbArgs(Namespace):
     ignore_depends: bool
     image_size: str
     image: bool
+    install_as_initramfs: bool
     install_base: bool
     install_blockdev: bool
     install_cgpt: bool
@@ -141,7 +143,7 @@ class PmbArgs(Namespace):
     odin_flashable_tar: bool
     offline: bool
     on_device_installer: bool
-    ondev_cp: list[tuple[str, str]]
+    cp: list[tuple[str, str]]
     ondev_no_rootfs: bool
     output: RunOutputType
     overview: bool
