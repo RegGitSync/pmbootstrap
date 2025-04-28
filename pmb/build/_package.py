@@ -390,11 +390,11 @@ def process_package(
 
     # Also traverse subpackage depends, they shouldn't be included in base_depends since they
     # aren't needed for building (and can conflict with depends for other subpackages)
-    depends += functools.reduce(
-        operator.iadd,
-        map(lambda sp: sp["depends"] if sp else [], base_apkbuild["subpackages"].values()),
-        [],
-    )
+    for subpkg in base_apkbuild["subpackages"].values():
+        if not subpkg:
+            continue
+        for sp in subpkg["depends"]:
+            depends += [sp]
 
     parent = pkgname
     while len(depends):
