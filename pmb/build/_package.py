@@ -394,7 +394,12 @@ def process_package(
         if not subpkg:
             continue
         for sp in subpkg["depends"]:
-            depends += [sp]
+            if pmb.helpers.package.check_arch(sp, arch):
+                depends += [sp]
+            else:
+                logging.debug(
+                    f"{arch}/{pkgname}: Can't build subpkg dep {sp} for {arch}, ignoring it"
+                )
 
     parent = pkgname
     while len(depends):
