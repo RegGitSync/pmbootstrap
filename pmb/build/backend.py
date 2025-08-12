@@ -218,7 +218,7 @@ def run_abuild(
     hostchroot = cross.host_chroot(arch)
     buildchroot = cross.build_chroot(arch)
 
-    # For cross-native2 compilation, bindmount the "host" rootfs to /mnt/sysroot
+        # For cross-native2 compilation, bindmount the "host" rootfs to /mnt/sysroot
     # it will be used as the "sysroot"
     if cross == CrossCompile.CROSS_NATIVE2:
         if buildchroot != Chroot.native():
@@ -250,10 +250,34 @@ def run_abuild(
 
     # Environment variables
     env: Env = {"SUDO_APK": "abuild-apk --no-progress"}
+
+    if "pmb:experimental-toolchain" in apkbuild["options"]:
+        # FIXME: gcc is always chosen for some reason
+        env["CC"] = "clang"
+        env["HOSTCC"] = "clang"
+        env["CXX"] = "clang++"
+        env["CPP"] = "clang-cpp"
+        env["HOSTCXX"] = "clang++"
+        env["HOSTCPP"] = "clang-cpp"
+        env["LD"] = "mold"
+        env["LDFLAGS"] = "-fuse-ld=mold"
+        env["HOSTLD"] = "mold"
+        env["AR"] = "llvm-ar"
+        env["HOSTAR"] = "llvm-ar"
+        env["NM"] = "llvm-nm"
+        env["STRIP"] = "llvm-strip"
+        env["OBJCOPY"] = "llvm-objcopy"
+        env["OBJDUMP"] = "llvm-objdump"
+        env["READELF"] = "llvm-readelf"
+        env["RUSTFLAGS"] = "-C linker=clang -C link-arg=-fuse-ld=mold"
+
     if cross == CrossCompile.CROSS_NATIVE:
-        hostspec = arch.alpine_triple()
-        env["CROSS_COMPILE"] = hostspec + "-"
-        env["CC"] = hostspec + "-gcc"
+        if "pmb:experimental-toolchain" in apkbuild["options"]:
+            env["CROSS_COMPILE"] = "llvm-"
+        else:
+            hostspec = arch.alpine_triple()
+            env["CROSS_COMPILE"] = hostspec + "-"
+            env["CC"] = hostspec + "-gcc"
     if cross == CrossCompile.CROSS_NATIVE2:
         env["CHOST"] = str(arch)
         env["CBUILDROOT"] = "/mnt/sysroot"

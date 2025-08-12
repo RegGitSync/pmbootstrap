@@ -452,3 +452,4 @@ fi
 # Run main() with all output redirected to stderr
 # Afterwards print fish compatible syntax to stdout
 main "$0" >&2 && fish_compat "$fish_arg"
+

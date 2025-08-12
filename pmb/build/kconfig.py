@@ -186,9 +186,13 @@ def _init(pkgname: str, arch: Arch | None) -> tuple[str, Arch, Any, Chroot, Env]
     # Set up build tools and makedepends
     pmb.build.init(chroot)
     if cross.enabled():
-        pmb.build.init_compiler(get_context(), [], cross, arch)
+        pmb.build.init_compiler(get_context(), [], apkbuild["options"], cross, arch)
 
-    depends = apkbuild["makedepends"] + ["gcc", "make"]
+    if "pmb:experimental-toolchain" in apkbuild["options"]:
+        # mold doesn't support linker scripts
+        depends = apkbuild["makedepends"] + ["postmarketos-build-base-experimental", "lld"]
+    else:
+        depends = apkbuild["makedepends"] + ["build-base"]
 
     pmb.chroot.apk.install(depends, chroot)
 
@@ -197,10 +201,17 @@ def _init(pkgname: str, arch: Arch | None) -> tuple[str, Arch, Any, Chroot, Env]
     env: Env = {
         "ARCH": arch.kernel(),
     }
+    if "pmb:experimental-toolchain" in apkbuild["options"]:
+        env["LLVM"] = "1"
+        env["RUSTFLAGS"] = "-C linker=clang -C link-arg=-fuse-ld=mold"
 
     if cross.enabled():
-        env["CROSS_COMPILE"] = f"{hostspec}-"
-        env["CC"] = f"{hostspec}-gcc"
+        if "pmb:experimental-toolchain" in apkbuild["options"]:
+            env["CROSS_COMPILE"] = "llvm-"
+            env["CC"] = "clang"
+        else:
+            env["CROSS_COMPILE"] = f"{hostspec}-"
+            env["CC"] = f"{hostspec}-gcc"
 
     return pkgname, arch, apkbuild, chroot, env
 

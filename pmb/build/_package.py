@@ -660,7 +660,7 @@ def packages(
                 pmb.chroot.apk.install(["sccache"], buildchroot)
 
         if cross != prev_cross and cross.enabled():
-            pmb.build.init_compiler(context, pkg_depends, cross, pkg_arch)
+            pmb.build.init_compiler(context, pkg_depends, apkbuild["options"], cross, pkg_arch)
             if cross == CrossCompile.CROSSDIRECT:
                 pmb.chroot.mount_native_into_foreign(buildchroot)
 

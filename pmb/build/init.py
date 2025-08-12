@@ -112,17 +112,21 @@ def init(chroot: Chroot = Chroot.native()) -> bool:
     return True
 
 
-def init_compiler(context: Context, depends: list[str], cross: CrossCompile, arch: Arch) -> None:
+def init_compiler(
+    context: Context, depends: list[str], options: list[str], cross: CrossCompile, arch: Arch
+) -> None:
     arch_str = str(arch)
     cross_pkgs = ["ccache-cross-symlinks", "abuild"]
     if "gcc4" in depends:
         cross_pkgs += ["gcc4-" + arch_str]
     elif "gcc6" in depends:
         cross_pkgs += ["gcc6-" + arch_str]
+    elif "clang" in depends or "clang-dev" in depends:
+        cross_pkgs += ["clang"]
+    elif "pmb:experimental-toolchain" in options:
+        cross_pkgs += ["postmarketos-build-base-experimental"]
     else:
         cross_pkgs += ["gcc-" + arch_str, "g++-" + arch_str]
-    if "clang" in depends or "clang-dev" in depends:
-        cross_pkgs += ["clang"]
     if cross == CrossCompile.CROSSDIRECT:
         cross_pkgs += ["crossdirect"]
         if "rust" in depends or "cargo" in depends:
