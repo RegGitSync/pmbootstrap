@@ -218,7 +218,12 @@ def run_abuild(
     hostchroot = cross.host_chroot(arch)
     buildchroot = cross.build_chroot(arch)
 
-        # For cross-native2 compilation, bindmount the "host" rootfs to /mnt/sysroot
+    if "pmb:experimental-toolchain" in apkbuild["options"]:
+        pmb.chroot.apk.install(["postmarketos-build-base-experimental"], buildchroot, build=False)
+    else:
+        pmb.chroot.apk.install(["build-base"], buildchroot, build=False)
+
+    # For cross-native2 compilation, bindmount the "host" rootfs to /mnt/sysroot
     # it will be used as the "sysroot"
     if cross == CrossCompile.CROSS_NATIVE2:
         if buildchroot != Chroot.native():
