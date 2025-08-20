@@ -220,7 +220,7 @@ chroot_outdated = 3600 * 24 * 2
 # for the first time
 # IMPORTANT: the order here matters, it is the order these packages will
 # be built in (if needed). abuild must be first!
-build_packages = ["abuild", "apk-tools", "build-base", "ccache", "git", "pigz"]
+build_packages = ["abuild", "apk-tools", "ccache", "git", "pigz"]
 
 #
 # PARSE
@@ -302,6 +302,7 @@ apkbuild_custom_valid_options = [
     "pmb:cross-native",
     "pmb:cross-native2",
     "pmb:drm",
+    "pmb:experimental-toolchain",
     "pmb:gpu-accel",  # deprecated
     "pmb:strict",
     "pmb:systemd",
