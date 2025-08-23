@@ -10,6 +10,7 @@ import platform
 _cached_native_arch: Arch
 
 
+@enum.unique
 class Arch(enum.Enum):
     """Supported architectures according to the Alpine
     APKBUILD format."""
