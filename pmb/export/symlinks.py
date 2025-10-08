@@ -60,6 +60,8 @@ def symlinks(folder: Path) -> None:
 
     # Iterate through all files
     for file in files:
+        if not file.exists():
+            continue
         basename = file.name
         link = folder / basename
 
@@ -69,4 +71,4 @@ def symlinks(folder: Path) -> None:
             msg += " (" + info[basename] + ")"
         logging.info(msg)
 
-        pmb.helpers.file.symlink(file, link)
+        link.symlink_to(file)

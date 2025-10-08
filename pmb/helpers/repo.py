@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Literal
 
 import pmb.config.pmaports
+import pmb.config.systemd
 from pmb.meta import Cache
 import pmb.helpers.http
 import pmb.helpers.run
@@ -59,10 +60,10 @@ def urls(
 ) -> list[str]:
     """Get a list of repository URLs, as they are in /etc/apk/repositories.
 
-    :param user_repository: add /mnt/pmbootstrap/packages
+    :param user_repository: add /cache/packages
     :param mirrors_exclude: mirrors to exclude (see pmb.core.config.Mirrors) or true to exclude
                             all mirrors and only return the local repos
-    :returns: list of mirror strings, like ["/mnt/pmbootstrap/packages",
+    :returns: list of mirror strings, like ["/cache/packages",
                                             "http://...", ...]
     """
     ret: list[str] = []
@@ -76,13 +77,17 @@ def urls(
 
     # Local user repository (for packages compiled with pmbootstrap)
     if user_repository:
-        ret.extend(str(user_repository / channel) for channel in pmb.config.pmaports.all_channels())
+        ret.extend(
+            filter(lambda rel_path: (config.work / "packages" / rel_path).exists(),
+                   (str(user_repository / channel) for channel in pmb.config.pmaports.all_channels())
+                   )
+        )
 
     if mirrors_exclude is True:
         return ret
 
     # Don't add the systemd mirror if systemd is disabled
-    if not pmb.config.is_systemd_selected(config):
+    if not pmb.config.systemd.is_systemd_selected(config):
         mirrors_exclude.append("systemd")
 
     # ["pmaports", "systemd", "alpine", "plasma-nightly"]
@@ -145,7 +150,7 @@ def apkindex_files(
 
     # Resolve the APKINDEX.$HASH.tar.gz files
     ret.extend(
-        get_context().config.work / f"cache_apk_{arch}" / apkindex_hash(url)
+        get_context().config.cache / f"apk_{arch}" / apkindex_hash(url)
         for url in urls(False, exclude_mirrors)
     )
 
@@ -183,7 +188,7 @@ def update(arch: Arch | None = None, force: bool = False, existing_only: bool = 
         for arch in architectures:
             # APKINDEX file name from the URL
             url_full = f"{url}/{arch}/APKINDEX.tar.gz"
-            cache_apk_outside = get_context().config.work / f"cache_apk_{arch}"
+            cache_apk_outside = get_context().config.cache / f"apk_{arch}"
             apkindex = cache_apk_outside / f"{apkindex_hash(url)}"
 
             # Find update reason, possibly skip non-existing or known 404 files
@@ -260,5 +265,5 @@ def alpine_apkindex_path(repo: str = "main", arch: Arch | None = None) -> Path:
     # Find it on disk
     channel_cfg = pmb.config.pmaports.read_config_channel()
     repo_link = f"{get_context().config.mirrors['alpine']}{channel_cfg['mirrordir_alpine']}/{repo}"
-    cache_folder = get_context().config.work / (f"cache_apk_{arch}")
+    cache_folder = get_context().config.cache / (f"apk_{arch}")
     return cache_folder / apkindex_hash(repo_link)

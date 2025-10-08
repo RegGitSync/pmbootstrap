@@ -75,18 +75,16 @@ def zap(
     if pkgs_online_mismatch:
         zap_pkgs_online_mismatch(confirm, dry)
 
-    pmb.chroot.shutdown()
-
     # Deletion patterns for folders inside get_context().config.work
     patterns = []
     if pkgs_local:
         patterns += ["packages"]
     if http:
-        patterns += ["cache_http"]
+        patterns += ["http"]
     if distfiles:
-        patterns += ["cache_distfiles"]
+        patterns += ["distfiles"]
     if rust:
-        patterns += ["cache_rust"]
+        patterns += ["rust"]
     if netboot:
         patterns += ["images_netboot"]
 
@@ -96,7 +94,8 @@ def zap(
     # Delete everything matching the patterns
     for pattern in patterns:
         logging.debug(f"Deleting {pattern}")
-        pattern = os.path.realpath(f"{get_context().config.work}/{pattern}")
+        basedir = get_context().config.work if pattern == "packages" else get_context().config.cache
+        pattern = os.path.realpath(f"{basedir}/{pattern}")
         matches = glob.glob(pattern)
         for match in matches:
             if not confirm or pmb.helpers.cli.confirm(f"Remove {match}?"):
@@ -109,8 +108,6 @@ def zap(
 
     # Chroots were zapped, so no repo lists exist anymore
     pmb.helpers.apk.update_repository_list.cache_clear()
-    # Let chroot.init be called again
-    pmb.chroot.init.cache_clear()
 
     # Print amount of cleaned up space
     if dry:
@@ -175,7 +172,7 @@ def zap_pkgs_local_mismatch(confirm: bool = True, dry: bool = False) -> None:
 
 def zap_pkgs_online_mismatch(confirm: bool = True, dry: bool = False) -> None:
     # Check whether we need to do anything
-    paths = list(get_context().config.work.glob("cache_apk_*"))
+    paths = list(get_context().config.cache.glob("apk_*"))
     if not len(paths):
         return
     if confirm and not pmb.helpers.cli.confirm("Remove outdated binary packages?"):

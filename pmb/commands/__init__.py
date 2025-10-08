@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 from __future__ import annotations
+import argparse
 from pmb.types import PmbArgs
 from pmb.helpers import frontend
 
@@ -16,6 +17,7 @@ from .pkgrel_bump import PkgrelBump
 from .pkgver_bump import PkgverBump
 from .pull import Pull
 from .kconfig import KConfigCheck, KConfigEdit, KConfigMigrate
+from .shell import Shell
 
 """New way to model pmbootstrap subcommands that can be invoked without PmbArgs."""
 
@@ -49,7 +51,7 @@ unmigrated_commands = [
 ]
 
 
-def run_command(args: PmbArgs) -> None:
+def run_command(args: PmbArgs, parser: argparse.ArgumentParser) -> None:
     # Handle deprecated command format
     if args.action in unmigrated_commands:
         getattr(frontend, args.action)(args)
@@ -86,6 +88,8 @@ def run_command(args: PmbArgs) -> None:
             command = PkgverBump(args.packages)
         case "pull":
             command = Pull()
+        case "shell":
+            command = Shell()
         case "kconfig":
             match args.action_kconfig:
                 case "check":
@@ -99,4 +103,5 @@ def run_command(args: PmbArgs) -> None:
         case _:
             raise NotImplementedError(f"Command '{args.action}' is not implemented.")
 
+    command.parse(parser)
     command.run()

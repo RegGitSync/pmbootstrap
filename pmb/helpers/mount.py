@@ -5,7 +5,7 @@ from pathlib import Path, PurePath
 import pmb.helpers
 from pmb.core import Chroot
 from pmb.types import PathString
-import pmb.helpers.run
+from pmb.init import sandbox
 
 
 def ismount(folder: Path) -> bool:
@@ -39,16 +39,13 @@ def bind(
             return
 
     # Check/create folders
-    for path in [source, destination]:
-        if os.path.exists(path):
-            continue
-        if create_folders:
-            pmb.helpers.run.root(["mkdir", "-p", path])
-        else:
-            raise RuntimeError(f"Mount failed, folder does not exist: {path}")
+    if create_folders:
+        for path in [source, destination]:
+            Path(path).mkdir(exist_ok=True, parents=True)
 
+    pmb.logging.verbose(f"mount --bind {source} {destination}")
     # Actually mount the folder
-    pmb.helpers.run.root(["mount", "--bind", source, destination])
+    sandbox.mount_rbind(str(source), str(destination))
 
     # Verify that it has worked
     if not ismount(destination):
@@ -66,12 +63,14 @@ def bind_file(source: Path, destination: Path, create_folders: bool = False) -> 
         if create_folders:
             dest_dir: Path = destination.parent
             if not dest_dir.is_dir():
-                pmb.helpers.run.root(["mkdir", "-p", dest_dir])
+                os.makedirs(dest_dir, exist_ok=True)
 
-        pmb.helpers.run.root(["touch", destination])
+        with sandbox.umask(~0o644):
+            os.close(os.open(destination, os.O_CREAT | os.O_CLOEXEC | os.O_EXCL))
 
     # Mount
-    pmb.helpers.run.root(["mount", "--bind", source, destination])
+    pmb.logging.info(f"% mount --bind {source} {destination}")
+    sandbox.mount_rbind(str(source), str(destination), 0)
 
 
 def umount_all_list(prefix: Path, source: Path = Path("/proc/mounts")) -> list[Path]:
@@ -98,10 +97,13 @@ def umount_all_list(prefix: Path, source: Path = Path("/proc/mounts")) -> list[P
 
 def umount_all(folder: Path) -> None:
     """Umount all folders that are mounted inside a given folder."""
-    for mountpoint in umount_all_list(folder):
-        pmb.helpers.run.root(["umount", mountpoint])
-        if ismount(mountpoint):
-            raise RuntimeError(f"Failed to umount: {mountpoint}")
+    all_mountpoints = umount_all_list(folder)
+    if all_mountpoints:
+        pmb.logging.info(f"% umount -R {folder}")
+
+    for mountpoint in all_mountpoints:
+        if mountpoint.name != "binfmt_misc":
+            sandbox.umount2(str(mountpoint), sandbox.MNT_DETACH)
 
 
 def mount_device_rootfs(chroot_rootfs: Chroot, chroot_base: Chroot = Chroot.native()) -> PurePath:

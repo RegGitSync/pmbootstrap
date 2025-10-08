@@ -83,7 +83,7 @@ def packages_get_locally_built_apks(package_list: list[str], arch: Arch) -> list
     :param arch: architecture that the locally built packages should have
     :returns: Pair of lists, the first is the input packages with local apks removed.
               the second is a list of apk file paths that are valid inside the chroots, e.g.
-              ["/mnt/pmbootstrap/packages/x86_64/hello-world-1-r6.apk", ...]
+              ["/cache/packages/x86_64/hello-world-1-r6.apk", ...]
     """
     channels: list[str] = pmb.config.pmaports.all_channels()
     local: list[Path] = []
@@ -119,7 +119,7 @@ def packages_get_locally_built_apks(package_list: list[str], arch: Arch) -> list
     return local
 
 
-def install_run_apk(
+def _install_run_apk(
     to_add: list[str], to_add_local: list[Path], to_del: list[str], chroot: Chroot
 ) -> None:
     """
@@ -167,7 +167,10 @@ def install_run_apk(
     # FIXME: use /mnt/pmb… until MR 2351 is reverted (pmb#2388)
     user_repo: list[PathString] = []
     for channel in pmb.config.pmaports.all_channels():
-        user_repo += ["--repository", context.config.work / "packages" / channel]
+        channel = str(channel)
+        repo_dir = context.config.work / "packages" / channel
+        if repo_dir.exists():
+            user_repo += ["--repository", repo_dir]
 
     for i, command in enumerate(commands):
         command = [*user_repo, *command]
@@ -219,7 +222,7 @@ def install(packages: list[str], chroot: Chroot, build: bool = True, quiet: bool
 
     if not quiet:
         logging.info(f"({chroot}) install {' '.join(packages)}")
-    install_run_apk(to_add, to_add_local, to_del, chroot)
+    _install_run_apk(to_add, to_add_local, to_del, chroot)
 
 
 def installed(suffix: Chroot = Chroot.native()) -> dict[str, pmb.parse.apkindex.ApkindexBlock]:

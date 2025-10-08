@@ -4,28 +4,19 @@ import os
 from pathlib import Path
 from pmb.types import PathString
 import sys
-from collections.abc import Sequence
-
-#
-# Exported functions
-#
-# FIXME (#2324): this sucks, we should re-organise this and not rely on "lifting"
-# this functions this way
-from pmb.config.file import load as load, save as save, serialize as serialize
-from pmb.config.sudo import which_sudo
-from pmb.config.other import is_systemd_selected as is_systemd_selected
-from .init import (
-    require_programs as require_programs,
-    ask_for_mainline_downstream as ask_for_mainline_downstream,
-)
-from . import workdir as workdir
-
 
 #
 # Exported variables (internal configuration)
 #
 pmb_src: Path = Path(Path(__file__) / "../../..").resolve()
 apk_keys_path: Path = pmb_src / "pmb/data/keys"
+
+# In the mount namespace this is where we mount our own binfmt_misc dir
+binfmt_misc = "/tmp/pmb_binfmt_misc"
+
+# This is the sector size we align to when creating partition tables, since
+# it works on all disks of smaller sector sizes too
+block_size = 4096
 
 # apk-tools minimum version
 # https://pkgs.alpinelinux.org/packages?name=apk-tools&branch=edge
@@ -74,16 +65,6 @@ required_programs: dict[str, str] = {
     "chroot": "",
     "sh": "",
 }
-
-
-def sudo(cmd: Sequence[PathString]) -> Sequence[PathString]:
-    """Adapt a command to run as root."""
-    sudo = which_sudo()
-    if sudo:
-        return [sudo, *cmd]
-    else:
-        return cmd
-
 
 defaults: dict[str, PathString] = {
     "cipher": "aes-xts-plain64",
@@ -157,24 +138,14 @@ chroot_path = ":".join(
 host_path = os.environ["PATH"] + ":/usr/sbin/"
 
 # Folders that get mounted inside the chroot
-# $WORK gets replaced with get_context().config.work
+# $CACHE gets replaced with get_context().config.cache
 # $ARCH gets replaced with the chroot architecture (eg. x86_64, armhf)
 # $CHANNEL gets replaced with the release channel (e.g. edge, v21.03)
-# Use no more than one dir after /mnt/pmbootstrap, see remove_mnt_pmbootstrap.
+# Use no more than one dir after /cache, see remove_mnt_pmbootstrap.
 chroot_mount_bind = {
     "/proc": "/proc",
-    "$WORK/cache_apk_$ARCH": "/var/cache/apk",
-    "$WORK/cache_appstream/$ARCH/$CHANNEL": "/mnt/appstream-data",
-    "$WORK/cache_ccache_$ARCH": "/mnt/pmbootstrap/ccache",
-    "$WORK/cache_distfiles": "/var/cache/distfiles",
-    "$WORK/cache_git": "/mnt/pmbootstrap/git",
-    "$WORK/cache_go": "/mnt/pmbootstrap/go",
-    "$WORK/cache_rust": "/mnt/pmbootstrap/rust",
-    "$WORK/config_abuild": "/mnt/pmbootstrap/abuild-config",
-    "$WORK/config_apk_keys": "/etc/apk/keys",
-    "$WORK/cache_sccache": "/mnt/pmbootstrap/sccache",
-    "$WORK/images_netboot": "/mnt/pmbootstrap/netboot",
-    "$WORK/packages/": "/mnt/pmbootstrap/packages",
+    "$CACHE": "/cache",
+    "$PACKAGES": "/cache/packages"
 }
 
 # Building chroots (all chroots, except for the rootfs_ chroot) get symlinks in
@@ -190,26 +161,15 @@ chroot_mount_bind = {
 # rust depends caching described above) and to cache build artifacts (GOCACHE,
 # similar to ccache).
 chroot_home_symlinks = {
-    "/mnt/pmbootstrap/abuild-config": "/home/pmos/.abuild",
-    "/mnt/pmbootstrap/ccache": "/home/pmos/.ccache",
-    "/mnt/pmbootstrap/go/gocache": "/home/pmos/.cache/go-build",
-    "/mnt/pmbootstrap/go/gomodcache": "/home/pmos/go/pkg/mod",
-    # "/mnt/pmbootstrap/packages": "/home/pmos/packages/pmos",
-    "/mnt/pmbootstrap/rust/git/db": "/home/pmos/.cargo/git/db",
-    "/mnt/pmbootstrap/rust/registry/cache": "/home/pmos/.cargo/registry/cache",
-    "/mnt/pmbootstrap/rust/registry/index": "/home/pmos/.cargo/registry/index",
-    "/mnt/pmbootstrap/sccache": "/home/pmos/.cache/sccache",
+    "/cache/abuild-config": "/home/pmos/.abuild",
+    "/cache/ccache_$ARCH": "/home/pmos/.ccache",
+    "/cache/go/gocache": "/home/pmos/.cache/go-build",
+    "/cache/go/gomodcache": "/home/pmos/go/pkg/mod",
+    "/cache/rust/git/db": "/home/pmos/.cargo/git/db",
+    "/cache/rust/registry/cache": "/home/pmos/.cargo/registry/cache",
+    "/cache/rust/registry/index": "/home/pmos/.cargo/registry/index",
+    "/cache/sccache": "/home/pmos/.cache/sccache",
 }
-
-# Device nodes to be created in each chroot. Syntax for each entry:
-# [permissions, type, major, minor, name]
-chroot_device_nodes = [
-    [666, "c", 1, 3, "null"],
-    [666, "c", 1, 5, "zero"],
-    [666, "c", 1, 7, "full"],
-    [644, "c", 1, 8, "random"],
-    [644, "c", 1, 9, "urandom"],
-]
 
 # Age in hours that we keep the APKINDEXes before downloading them again.
 # You can force-update them with 'pmbootstrap update'.
@@ -224,6 +184,10 @@ chroot_outdated = 3600 * 24 * 2
 # IMPORTANT: the order here matters, it is the order these packages will
 # be built in (if needed). abuild must be first!
 build_packages = ["abuild", "apk-tools", "build-base", "ccache", "git", "pigz"]
+
+# This is the directory that package sources are copied into in the chroot
+# before building.
+abuild_basedir = "/home/pmos/build"
 
 #
 # PARSE
@@ -270,6 +234,7 @@ apkbuild_attributes = {
     "sha512sums": {},
     "subpackages": {},
     "url": {},
+    "builddir": {},
     # cross-compilers
     "makedepends_build": {"array": True},
     "makedepends_host": {"array": True},

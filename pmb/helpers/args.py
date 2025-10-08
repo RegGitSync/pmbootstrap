@@ -2,11 +2,14 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import sys
 
-import pmb.config
+import pmb.config.file
+# import pmb.config.pmaports
 from pmb.core.context import Context
 from pmb.core.pkgrepo import pkgrepo_default_path
 from pmb.types import PmbArgs
 import pmb.helpers.git
+from pathlib import Path
+import os
 
 
 """This file constructs the args variable, which is passed to almost all
@@ -31,7 +34,7 @@ import pmb.helpers.git
         with "pmbootstrap init".
 
        Examples:
-       args.aports ("$WORK/cache_git/pmaports", override with --aports)
+       args.aports ("$WORK/git/pmaports", override with --aports)
        args.device ("samsung-i9100", "qemu-amd64" etc.)
        get_context().config.work ("/home/user/.local/var/pmbootstrap", override with --work)
 
@@ -52,7 +55,21 @@ def init(args: PmbArgs) -> PmbArgs:
     # Basic initialization
     # print(json.dumps(args.__dict__))
     # sys.exit(0)
-    config = pmb.config.load(args.config)
+    if not args.config:
+        cwd = Path.cwd()
+        for i in range(len(cwd.parts)):
+            local_conf = Path(*cwd.parts[:-i], "pmbootstrap.conf")
+            # If the path isn't owned by the user then we have gone too far.
+            if local_conf.parent.owner() != os.getlogin():
+                break
+            if local_conf.exists():
+                print(f"Using local config {local_conf}")
+                args.config = local_conf
+                os.chdir(local_conf.parent)
+                break
+        if not args.config:
+            args.config = pmb.config.defaults["config"]
+    config = pmb.config.file.load(args.config)
 
     if args.aports:
         for pmaports_dir in args.aports:
@@ -84,6 +101,7 @@ def init(args: PmbArgs) -> PmbArgs:
     context.cross = args.cross
     context.assume_yes = getattr(args, "assume_yes", False)
     context.force = getattr(args, "force", False)
+    context.sector_size = getattr(args, "sector_size", None)
 
     # Initialize context
     pmb.core.context.set_context(context)
@@ -91,6 +109,23 @@ def init(args: PmbArgs) -> PmbArgs:
     # Initialize logs (we could raise errors below)
     pmb.helpers.logging.init(context.log, args.verbose, context.details_to_stdout)
     pmb.helpers.logging.debug(f"Pmbootstrap v{pmb.__version__} (Python {sys.version})")
+
+    # Now we go round-about to set context based on deviceinfo hahaha
+    if args.action != "config":
+        dinfo_sector_size = pmb.parse.deviceinfo().rootfs_image_sector_size
+        # Warn if overriding sector size from cmdline
+        if dinfo_sector_size and context.sector_size:
+            pmb.helpers.logging.warning(f"WARNING: overriding sector size {dinfo_sector_size} from cmdline {context.sector_size}")
+        else:
+            context.sector_size = dinfo_sector_size
+    if context.sector_size is None:
+        context.sector_size = 512
+
+    valid_sector_size = [512, 2048, 4096]
+    if context.sector_size not in valid_sector_size:
+        raise ValueError(
+            f"Invalid sector size from cmdline or deviceinfo file! Must be one of {valid_sector_size} but got {context.sector_size}"
+        )
 
     # Initialization code which may raise errors
     if args.action not in [
@@ -103,7 +138,7 @@ def init(args: PmbArgs) -> PmbArgs:
         "shutdown",
         "zap",
     ]:
-        pmb.config.pmaports.read_config()
+        # pmb.config.pmaports.read_config()
         pmb.helpers.git.parse_channels_cfg(pkgrepo_default_path())
 
     # Remove attributes from args so they don't get used by mistake

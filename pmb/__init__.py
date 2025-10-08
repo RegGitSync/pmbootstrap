@@ -13,13 +13,13 @@ if TYPE_CHECKING:
     from pmb.types import PmbArgs
 
 from . import config
-from . import parse
-from .config import init as config_init, require_programs
+from .init import arguments, sysroot
+from .config import init as config_init
 from .helpers import logging
 from .helpers import mount
 from .helpers import other
 from .helpers import status
-from .core import Chroot, Config
+from .core import Chroot, Sysroot, Config
 from .core.context import get_context
 from .commands import run_command
 
@@ -45,7 +45,7 @@ def print_log_hint() -> None:
     context = get_context(allow_failure=True)
     if context and context.details_to_stdout:
         return
-    log = context.log if context else Config().work / "log.txt"
+    log = context.log if context else Config().cache / "log.txt"
     # Hints about the log file (print to stdout only)
     log_hint = "Run 'pmbootstrap log' for details."
     if not os.path.exists(log):
@@ -57,13 +57,18 @@ def print_log_hint() -> None:
     print(log_hint)
 
 
+def enter_sandbox(config: Config):
+    sbox = sysroot.PmbSandboxBuilder(work=config.work, cache=config.cache, aports=config.aports, sysroot=Sysroot().path)
+    sbox.enter()
+    # Cool, we are now inside the sandbox :3
+
+
 def main() -> int:
     # Wrap everything to display nice error messages
-
     args: PmbArgs
     try:
         # Parse arguments, set up logging
-        args = parse.arguments()
+        args, parser = arguments.parse()
         context = get_context()
         os.umask(0o22)
 
@@ -72,11 +77,9 @@ def main() -> int:
 
         # Sanity checks
         other.check_grsec()
-        if not args.as_root and os.geteuid() == 0:
-            raise RuntimeError("Do not run pmbootstrap as root!")
 
         # Check for required programs (and find their absolute paths)
-        require_programs()
+        config_init.require_programs()
 
         # Initialize or require config
         if args.action == "init":
@@ -102,17 +105,19 @@ def main() -> int:
             raise NonBugError("Work path not found, please run 'pmbootstrap init' to create it.")
 
         # Migrate work folder if necessary
-        if args.action not in ["shutdown", "zap", "log"]:
-            other.migrate_work_folder()
+        if args.action not in ["shutdown", "zap", "log", "config"]:
+            other.migrate_localdir()
+
+        enter_sandbox(context.config)
 
         # Run the function with the action's name (in pmb/helpers/frontend.py)
         if args.action:
-            run_command(args)
+            run_command(args, parser)
         else:
             logging.info("Run pmbootstrap -h for usage information.")
 
         # Still active notice
-        if mount.ismount(Chroot.native() / "dev"):
+        if Chroot.native().is_mounted():
             logging.info("NOTE: chroot is still active (use 'pmbootstrap shutdown' as necessary)")
         logging.info("DONE!")
 

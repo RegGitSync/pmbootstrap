@@ -1,11 +1,15 @@
 # Copyright 2023 Oliver Smith
 # SPDX-License-Identifier: GPL-3.0-or-later
-import filecmp
+from pathlib import Path
+import pmb.chroot.run
 from pmb.meta import Cache
 from pmb.helpers import logging
 import os
+import shutil
 
 import pmb.chroot
+import pmb.chroot.mount
+import pmb.chroot.zap
 import pmb.config
 import pmb.config.workdir
 import pmb.helpers.apk_static
@@ -27,8 +31,7 @@ def copy_resolv_conf(chroot: Chroot) -> None:
     host = "/etc/resolv.conf"
     resolv_path = chroot / host
     if os.path.exists(host):
-        if not resolv_path.exists() or not filecmp.cmp(host, resolv_path):
-            pmb.helpers.run.root(["cp", host, resolv_path])
+        shutil.copy(host, resolv_path)
     else:
         pmb.helpers.run.root(["touch", resolv_path])
 
@@ -44,21 +47,22 @@ def mark_in_chroot(chroot: Chroot = Chroot.native()) -> None:
         pmb.helpers.run.root(["touch", in_chroot_file])
 
 
-def init_keys() -> None:
+def init_keys(path: Path) -> None:
     """
     All Alpine and postmarketOS repository keys are shipped with pmbootstrap.
-    Copy them into $WORK/config_apk_keys, which gets mounted inside the various
+    Copy them into $WORK/keys, which gets mounted inside the various
     chroots as /etc/apk/keys.
 
     This is done before installing any package, so apk can verify APKINDEX
     files of binary repositories even though alpine-keys/postmarketos-keys are
     not installed yet.
     """
+    target = path / "etc/apk/keys/"
+    target.mkdir(exist_ok=True, parents=True)
     for key in pmb.config.apk_keys_path.glob("*.pub"):
-        target = get_context().config.work / "config_apk_keys" / key.name
-        if not target.exists():
-            # Copy as root, so the resulting files in chroots are owned by root
-            pmb.helpers.run.root(["cp", key, target])
+        shutil.copy(key, target)
+    for key in (get_context().config.cache / "keys").glob("*.pub"):
+        shutil.copy(key, target)
 
 
 @Cache()
@@ -67,13 +71,13 @@ def warn_if_chroots_outdated() -> None:
     if outdated:
         days_warn = int(pmb.config.chroot_outdated / 3600 / 24)
         msg = ""
-        if Chroot.native() in outdated:
+        if str(Chroot.native()) in outdated:
             msg += "your native"
-            if Chroot.rootfs(get_context().config.device) in outdated:
+            if str(Chroot.rootfs(get_context().config.device)) in outdated:
                 msg += " and rootfs chroots are"
             else:
                 msg += " chroot is"
-        elif Chroot.rootfs(get_context().config.device) in outdated:
+        elif str(Chroot.rootfs(get_context().config.device)) in outdated:
             msg += "your rootfs chroot is"
         else:
             msg += "some of your chroots are"
@@ -82,7 +86,14 @@ def warn_if_chroots_outdated() -> None:
         )
 
 
-@Cache("chroot")
+def setup_cache_path(chroot: Chroot):
+    # Set up the apk cache to point to the working cache
+    cache_target = chroot / "etc/apk/cache"
+    if not cache_target.is_symlink():
+        cache_target.parent.mkdir(parents=True, exist_ok=True)
+        cache_target.symlink_to(f"/cache/apk_{chroot.arch}")
+
+
 def init(chroot: Chroot) -> None:
     """
     Initialize a chroot by copying the resolv.conf and updating
@@ -97,15 +108,18 @@ def init(chroot: Chroot) -> None:
     if chroot.exists():
         zap = pmb.config.workdir.chroot_check_channel(chroot)
         if zap:
-            pmb.chroot.del_chroot(chroot.path, confirm=False)
+            pmb.chroot.zap.del_chroot(chroot.path, confirm=False)
             pmb.config.workdir.clean()
+        if pmb.helpers.file.is_older_than(chroot / "etc/apk/repositories", 300):
+            pmb.helpers.apk.update_repository_list(chroot.path)
+            warn_if_chroots_outdated()
 
-    pmb.chroot.mount(chroot)
+    pmb.chroot.mount.mount(chroot)
+    logging.info(f"({chroot}) Mounted!")
     mark_in_chroot(chroot)
+    setup_cache_path(chroot)
+    copy_resolv_conf(chroot)
     if chroot.exists():
-        copy_resolv_conf(chroot)
-        pmb.helpers.apk.update_repository_list(chroot.path)
-        warn_if_chroots_outdated()
         return
 
     # Fetch apk.static
@@ -113,12 +127,12 @@ def init(chroot: Chroot) -> None:
 
     logging.info(f"({chroot}) Creating chroot")
 
-    # Initialize /etc/apk/keys/, resolv.conf, repositories
-    init_keys()
-    copy_resolv_conf(chroot)
+    # Initialize /etc/apk/keys/, creates /etc
+    init_keys(chroot.path)
+    # Set up /etc/apk/repositories
     pmb.helpers.apk.update_repository_list(chroot.path)
 
-    pmb.config.workdir.chroot_save_init(chroot)
+    pmb.config.workdir.chroot_save_init(str(chroot))
 
     pmb.helpers.repo.update(arch)
     # Create the /usr-merge-related symlinks, which needs to be done manually
@@ -142,14 +156,38 @@ def init(chroot: Chroot) -> None:
 
     # Building chroots: create "pmos" user, add symlinks to /home/pmos
     if chroot.type != ChrootType.ROOTFS:
-        pmb.chroot.root(["adduser", "-D", "pmos", "-u", pmb.config.chroot_uid_user], chroot)
+        pmb.chroot.root(["adduser", "-s", "/bin/sh", "-D", "pmos", "-u", pmb.config.chroot_uid_user], chroot)
 
         # Create the links (with subfolders if necessary)
-        for target, link_name in pmb.config.chroot_home_symlinks.items():
-            link_dir = os.path.dirname(link_name)
-            if not os.path.exists(chroot / link_dir):
-                pmb.chroot.user(["mkdir", "-p", link_dir], chroot)
-            if not os.path.exists(chroot / target):
-                pmb.chroot.root(["mkdir", "-p", target], chroot)
-            pmb.chroot.user(["ln", "-s", target, link_name], chroot)
-            pmb.chroot.root(["chown", "pmos:pmos", target], chroot)
+        for src_template, link_name in pmb.config.chroot_home_symlinks.items():
+            target = Path(src_template.replace("$ARCH", str(arch)))
+            (chroot / link_name).parent.mkdir(exist_ok=True, parents=True)
+            (chroot / target).mkdir(exist_ok=True, parents=True)
+            (chroot / link_name).symlink_to(target, target_is_directory=True)
+            shutil.chown(
+                chroot / target, int(pmb.config.chroot_uid_user), int(pmb.config.chroot_uid_user)
+            )
+
+
+def shutdown(chroot: Chroot) -> None:
+    """
+    Shutdown a chroot, unmounting all mountpoints and removing symlinks that
+    are only used at build time (e.g. /etc/apk/cache).
+    """
+    pmb.chroot.mount.umount_all(chroot)
+    # Remove "in-pmbootstrap" marker from the chroot. This marker indicates
+    # that pmbootstrap has set up all mount points etc. to run programs inside
+    # the chroots, but we want it gone afterwards (e.g. when the chroot
+    # contents get copied to a rootfs / installer image, or if creating an
+    # android recovery zip from its contents).
+    try:
+        (chroot / "in-pmbootstrap").unlink()
+    except FileNotFoundError:
+        raise RuntimeError(f"({chroot}) attempted to shutdown chroot which wasn't initialised (/in-pmbootstrap marker missing).")
+
+    # Remove the /cache directory
+    (chroot / "cache").rmdir()
+    (chroot / "etc/apk/cache").unlink()
+
+    logging.debug("Shutdown complete")
+

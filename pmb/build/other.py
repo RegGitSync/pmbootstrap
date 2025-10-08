@@ -48,13 +48,13 @@ def copy_to_buildpath(
     if not no_override:
         abuild_overrides(build / "APKBUILD")
 
-    pmb.chroot.root(["chown", "-R", "pmos:pmos", "/home/pmos/build"], chroot)
+    pmb.chroot.root(["chown", "-R", "pmos:pmos", pmb.config.abuild_basedir], chroot)
 
 
 def abuild_overrides(apkbuild: Path) -> None:
     """Override some abuild functions by patching the APKBUILD file."""
 
-    if apkbuild.is_relative_to(get_context().config.work / "cache_git"):
+    if apkbuild.is_relative_to(get_context().config.cache / "git"):
         raise ValueError(f"Refusing to patch file in pmaports repo: {apkbuild}")
 
     # Patch the APKBUILD file
@@ -151,7 +151,7 @@ def index_repo(arch: Arch | None = None) -> None:
     for path in paths:
         if path.is_dir():
             path_channel, path_arch = path.parts[-2:]
-            path_repo_chroot = Path("/mnt/pmbootstrap/packages") / path_channel / path_arch
+            path_repo_chroot = Path("/cache/packages") / path_channel / path_arch
             logging.debug(f"(native) index {path_channel}/{path_arch} repository")
             description = str(datetime.datetime.now())
             commands = [
@@ -208,7 +208,7 @@ def configure_ccache(chroot: Chroot = Chroot.native(), verify: bool = False) -> 
     # Check if the settings have been set already
     arch = chroot.arch
     config = get_context().config
-    path = config.work / f"cache_ccache_{arch}" / "ccache.conf"
+    path = config.cache / f"ccache_{arch}" / "ccache.conf"
     if os.path.exists(path):
         with open(path, encoding="utf-8") as handle:
             for line in handle:

@@ -20,7 +20,6 @@ import pmb.chroot
 import pmb.chroot.apk
 import pmb.chroot.other
 import pmb.config.pmaports
-import pmb.install.losetup
 from pmb.types import Env, PathString, PmbArgs, RunOutputTypeDefault
 import pmb.helpers.run
 import pmb.parse.cpuinfo
@@ -436,10 +435,6 @@ def run(args: PmbArgs) -> None:
             "and select the 'qemu' vendor."
         )
     arch = pmb.parse.deviceinfo().arch
-
-    # Make sure the rootfs image isn't mounted
-    pmb.mount.umount_all(Chroot(ChrootType.IMAGE, "").path)
-    pmb.install.losetup.detach_all()
 
     img_path = system_image(device)
     img_path_2nd = None

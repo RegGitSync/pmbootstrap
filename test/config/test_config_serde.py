@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 from pathlib import Path
 
-import pmb.config
+import pmb.config.file
 from pmb.core.config import SystemdConfig
 
 """Test the config file serialization and deserialization."""
@@ -20,10 +20,9 @@ def test_load(config_file: Path) -> None:
     assert config.kernel == "edge"
     assert config.locale == "C.UTF-8"
     assert config.ssh_keys
-    assert config.sudo_timer
     assert config.systemd == SystemdConfig.ALWAYS
     assert config.timezone == "Europe/Berlin"
     assert config.ui == "gnome"
     assert config.providers == {}
     assert config.mirrors["pmaports"] is not None
-    assert ".pytest_tmp" in config.work.parts
+    assert ".pytest_tmp" in config.cache.parts

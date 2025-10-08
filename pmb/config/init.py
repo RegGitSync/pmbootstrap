@@ -1,5 +1,6 @@
 # Copyright 2023 Oliver Smith
 # SPDX-License-Identifier: GPL-3.0-or-later
+from pmb.core.arch import Arch
 from pmb.core.context import get_context
 from pmb.core.chroot import Chroot
 from pmb.core.config import SystemdConfig
@@ -21,6 +22,7 @@ import pmb.aportgen
 import pmb.config
 import pmb.config.pmaports
 from pmb.core import Config
+from pmb.core.pkgrepo import pkgrepo_iglob
 from pmb.types import Apkbuild, PmbArgs
 import pmb.helpers.cli
 import pmb.helpers.devices
@@ -224,6 +226,28 @@ def ask_for_channel(config: Config) -> str:
         if ret in choices:
             return ret
         logging.fatal("ERROR: Invalid channel specified, please type in one from the list above.")
+
+
+def list_ui(arch: Arch) -> list[tuple[str, str]]:
+    """Get all UIs, for which aports are available with their description.
+
+    :param arch: device architecture, for which the UIs must be available
+    :returns: [("none", "No graphical..."), ("weston", "Wayland reference...")]
+    """
+    ret = [
+        (
+            "none",
+            "Bare minimum OS image for testing and manual"
+            ' customization. The "console" UI should be selected if'
+            " a graphical UI is not desired.",
+        )
+    ]
+    for path in sorted(pkgrepo_iglob("main/postmarketos-ui-*")):
+        apkbuild = pmb.parse.apkbuild(path)
+        ui = os.path.basename(path).split("-", 2)[2]
+        if pmb.helpers.package.check_arch(apkbuild["pkgname"], arch):
+            ret.append((ui, apkbuild["pkgdesc"]))
+    return ret
 
 
 def ask_for_ui(deviceinfo: Deviceinfo) -> str:
@@ -602,7 +626,6 @@ def ask_for_additional_options(config: Config) -> None:
         f" boot partition size: {config.boot_size} MB,"
         f" parallel jobs: {config.jobs},"
         f" ccache per arch: {config.ccache_size},"
-        f" sudo timer: {context.sudo_timer},"
         f" mirror: {config.mirrors['pmaports']}"
     )
 
@@ -646,19 +669,6 @@ def ask_for_additional_options(config: Config) -> None:
         "Ccache size", None, config.ccache_size, lowercase_answer=False, validation_regex=regex
     )
     config.ccache_size = answer
-
-    # Sudo timer
-    logging.info(
-        "pmbootstrap does everything in Alpine Linux chroots, so your host system does not get"
-        " modified. In order to work with these chroots, pmbootstrap calls 'sudo' internally. For"
-        " long running operations, it is possible that you'll have to authorize sudo more than"
-        " once."
-    )
-    answer_background_timer = pmb.helpers.cli.confirm(
-        "Enable background timer to prevent repeated sudo authorization?",
-        default=context.sudo_timer,
-    )
-    config.sudo_timer = answer_background_timer
 
     # Mirrors
     # prompt for mirror change
@@ -876,23 +886,23 @@ def frontend(args: PmbArgs) -> None:
     # Work folder (needs to be first, so we can create chroots early)
     config = get_context().config
 
-    using_default_pmaports = config.aports[-1].is_relative_to(config.work)
+    using_default_pmaports = config.aports[-1].is_relative_to(config.cache)
 
     config.work, work_exists = ask_for_work_path(config.work)
 
     # If the work dir changed then we need to update the pmaports path
     # to be relative to the new workdir
     if using_default_pmaports:
-        config.aports = [config.work / "cache_git/pmaports"]
+        config.aports = [config.cache / "git/pmaports"]
 
     config.aports[-1] = ask_for_pmaports_path(config.aports[-1])
 
     # Update args and save config (so chroots and 'pmbootstrap log' work)
     # pmb.helpers.args.update_work(args, config.work)
-    pmb.config.save(args.config, config)
+    pmb.config.file.save(args.config, config)
 
     # Migrate work dir if necessary
-    pmb.helpers.other.migrate_work_folder()
+    pmb.helpers.other.migrate_localdir()
 
     # Clone pmaports
     pmb.config.pmaports.init(args.shallow_initial_clone)
@@ -971,7 +981,7 @@ def frontend(args: PmbArgs) -> None:
     config.build_pkgs_on_install = ask_build_pkgs_on_install(config.build_pkgs_on_install)
 
     # Save config
-    pmb.config.save(args.config, config)
+    pmb.config.file.save(args.config, config)
 
     # Zap existing chroots
     if (

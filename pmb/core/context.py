@@ -13,7 +13,6 @@ class Context:
     details_to_stdout: bool = False
     quiet: bool = False
     command_timeout: float = 900
-    sudo_timer: bool = False
     force: bool = False
     log: Path
 
@@ -34,10 +33,13 @@ class Context:
     ccache: bool = False
     go_mod_cache: bool = False
 
+    # Disk image sector size (not filesystem block size!)
+    sector_size: int | None = None
+
     config: Config
 
     def __init__(self, config: Config) -> None:
-        self.log = config.work / "log.txt"
+        self.log = config.cache / "log.txt"
         self.config = config
 
 

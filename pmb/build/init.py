@@ -5,6 +5,7 @@ from pmb.core.context import Context
 from pmb.helpers import logging
 import os
 import pathlib
+import shutil
 
 import pmb.config
 import pmb.chroot
@@ -48,20 +49,20 @@ def init(chroot: Chroot = Chroot.native()) -> bool:
 
     # Initialize chroot, install packages
     pmb.chroot.init(Chroot.native())
-    pmb.chroot.init(chroot)
+    if chroot != Chroot.native():
+        pmb.chroot.init(chroot)
     init_abuild_minimal(chroot)
 
     # Generate package signing keys
-    if not os.path.exists(get_context().config.work / "config_abuild/abuild.conf"):
+    if not os.path.exists(get_context().config.cache / "abuild-config/abuild.conf"):
         logging.info(f"({chroot}) generate abuild keys")
         pmb.chroot.user(
             ["abuild-keygen", "-n", "-q", "-a"], chroot, env={"PACKAGER": "pmos <pmos@local>"}
         )
 
         # Copy package signing key to /etc/apk/keys
-        for key in (chroot / "mnt/pmbootstrap/abuild-config").glob("*.pub"):
-            key = key.relative_to(chroot.path)
-            pmb.chroot.root(["cp", key, "/etc/apk/keys/"], chroot)
+        for key in (get_context().config.cache / "abuild-config").glob("*.pub"):
+            shutil.copy(key, chroot / "etc/apk/keys")
 
     apk_arch = chroot.arch
 
@@ -112,13 +113,18 @@ def init(chroot: Chroot = Chroot.native()) -> bool:
 
 def init_compiler(context: Context, depends: list[str], cross: CrossCompile, arch: Arch) -> None:
     arch_str = str(arch)
-    cross_pkgs = ["ccache-cross-symlinks", "abuild"]
+    cross_pkgs = ["abuild"]
+    if context.ccache:
+        cross_pkgs.append("ccache-cross-symlinks")
+    # FIXME: cleanup this logic
     if "gcc4" in depends:
         cross_pkgs += ["gcc4-" + arch_str]
     elif "gcc6" in depends:
         cross_pkgs += ["gcc6-" + arch_str]
-    else:
-        cross_pkgs += ["gcc-" + arch_str, "g++-" + arch_str]
+    elif arch != Arch.native():
+        cross_pkgs += ["gcc-" + arch_str]
+        if "g++" in depends:
+            cross_pkgs += ["g++-" + arch_str]
     if "clang" in depends or "clang-dev" in depends:
         cross_pkgs += ["clang"]
     if cross == CrossCompile.CROSSDIRECT:

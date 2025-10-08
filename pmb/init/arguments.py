@@ -3,7 +3,6 @@
 import argparse
 from collections.abc import Sequence
 import contextlib
-import os
 from pathlib import Path
 import sys
 from typing import Any, cast
@@ -59,29 +58,6 @@ def toggle_other_boolean_flags(
                 setattr(namespace, destination, value)
 
     return SetOtherDestinationsAction
-
-
-def type_ondev_cp(val: str) -> list[str]:
-    """Parse and validate arguments to 'pmbootstrap install --ondev --cp'.
-
-    :param val: 'HOST_SRC:CHROOT_DEST' string
-
-    :returns: [HOST_SRC, CHROOT_DEST]
-    """
-    ret = val.split(":")
-
-    if len(ret) != 2:
-        raise argparse.ArgumentTypeError(f"does not have HOST_SRC:CHROOT_DEST format: {val}")
-    host_src = ret[0]
-    if not os.path.exists(host_src):
-        raise argparse.ArgumentTypeError(f"HOST_SRC not found: {host_src}")
-    if not os.path.isfile(host_src):
-        raise argparse.ArgumentTypeError(f"HOST_SRC is not a file: {host_src}")
-
-    chroot_dest = ret[1]
-    if not chroot_dest.startswith("/"):
-        raise argparse.ArgumentTypeError(f"CHROOT_DEST must start with '/': {chroot_dest}")
-    return ret
 
 
 def arguments_install(subparser: argparse._SubParsersAction) -> None:
@@ -142,7 +118,7 @@ def arguments_install(subparser: argparse._SubParsersAction) -> None:
         help="create combined boot and root image file",
         dest="split",
         action="store_false",
-        default=None,
+        default=False,
     )
     group.add_argument(
         "--split", help="create separate boot and root image files", action="store_true"
@@ -237,42 +213,6 @@ def arguments_install(subparser: argparse._SubParsersAction) -> None:
     )
     group.add_argument(
         "--no-sparse", help="do not generate sparse image file", dest="sparse", action="store_false"
-    )
-
-    # On-device installer
-    group = ret.add_argument_group(
-        "optional on-device installer arguments",
-        "Wrap the resulting image in a postmarketOS based installation OS, so"
-        " it can be encrypted and customized on first boot."
-        " Related: https://postmarketos.org/on-device-installer",
-    )
-    group.add_argument(
-        "--on-device-installer", "--ondev", action="store_true", help="enable on-device installer"
-    )
-    group.add_argument(
-        "--no-local-pkgs",
-        dest="install_local_pkgs",
-        help="do not install locally compiled packages and package signing keys",
-        action="store_false",
-    )
-    group.add_argument(
-        "--cp",
-        dest="ondev_cp",
-        nargs="+",
-        metavar="HOST_SRC:CHROOT_DEST",
-        type=type_ondev_cp,
-        help="copy one or more files from the host system path"
-        " HOST_SRC to the target path CHROOT_DEST",
-    )
-    group.add_argument(
-        "--no-rootfs",
-        dest="ondev_no_rootfs",
-        help="do not generate a pmOS rootfs as"
-        " /var/lib/rootfs.img (install chroot). The file"
-        " must either exist from a previous"
-        " 'pmbootstrap install' run or by providing it"
-        " as CHROOT_DEST with --cp",
-        action="store_true",
     )
 
     # Other
@@ -755,6 +695,7 @@ def arguments_test(subparser: argparse._SubParsersAction) -> None:
     test = subparser.add_parser("test", help="Internal pmbootstrap test tools")
     sub = test.add_subparsers(dest="action_test", required=True)
     sub.add_parser("apkindex_parse_all", help="parse all APKINDEX files")
+    sub.add_parser("repl", help="Drop to a Python REPL in the pmb context")
 
 
 def arguments_status(subparser: argparse._SubParsersAction) -> argparse.ArgumentParser:
@@ -852,7 +793,7 @@ def get_parser() -> argparse.ArgumentParser:
         "--config",
         dest="config",
         type=lambda x: Path(x),
-        default=pmb.config.defaults["config"],
+        default=None,
         help="path to pmbootstrap_v3.cfg file (default in ~/.config/)",
     )
     parser.add_argument(
@@ -1002,6 +943,10 @@ def get_parser() -> argparse.ArgumentParser:
     log.add_argument("-n", "--lines", type=int, default=60, help="count of initial output lines")
     log.add_argument("-c", "--clear", help="clear the log", action="store_true", dest="clear_log")
 
+    # Actions: shell
+    # Spawn a shell after unshare()
+    sub.add_parser("shell", help="Spawn a shell after unsharing namespaces (DEBUGGING)")
+
     # Action: zap
     zap = sub.add_parser("zap", help="safely delete chroot folders")
     zap.add_argument(
@@ -1099,11 +1044,6 @@ def get_parser() -> argparse.ArgumentParser:
         " 'stdout', 'interactive', 'tui' (default),"
         " 'background'. Details: pmb/helpers/run_core.py",
         default=RunOutputTypeDefault.TUI,
-    )
-    chroot.add_argument(
-        "--image",
-        help="Mount the rootfs image and treat it like a normal chroot.",
-        action="store_true",
     )
     chroot.add_argument(
         "--usb",
@@ -1322,9 +1262,10 @@ def get_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def arguments() -> PmbArgs:
+def parse() -> tuple[PmbArgs, argparse.ArgumentParser]:
     # FIXME: It would be nice to not use cast here, but I don't know what else we could do.
-    args = cast(PmbArgs, get_parser().parse_args())
+    parser = get_parser()
+    args = cast(PmbArgs, parser.parse_args())
 
     if getattr(args, "fork_alpine_retain_branch", False):
         # fork_alpine_retain_branch largely matches the behaviour of fork_alpine, so
@@ -1343,4 +1284,4 @@ def arguments() -> PmbArgs:
         gomodcache = bool(getattr(args, "src", None))
         setattr(args, "go_mod_cache", gomodcache)
 
-    return args
+    return args, parser

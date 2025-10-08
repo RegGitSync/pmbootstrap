@@ -7,8 +7,10 @@ import re
 import glob
 import shlex
 import sys
+from math import ceil
 from collections.abc import Sequence
 from pathlib import Path
+import shutil
 
 import pmb.build
 import pmb.chroot
@@ -16,11 +18,12 @@ import pmb.chroot.apk
 import pmb.chroot.initfs
 import pmb.config
 import pmb.config.pmaports
+import pmb.config.systemd
 from pmb.helpers.locale import get_xkb_layout
 import pmb.parse.depends
 from pmb.parse.deviceinfo import Deviceinfo
 from pmb.core import Config
-from pmb.types import Env, PartitionLayout, PmbArgs, RunOutputTypeDefault
+from pmb.types import PartitionLayout, PmbArgs, RunOutputTypeDefault
 import pmb.helpers.devices
 from pmb.helpers.mount import mount_device_rootfs
 import pmb.helpers.run
@@ -32,6 +35,7 @@ import pmb.install.ui
 import pmb.install
 from pmb.core import Chroot, ChrootType
 from pmb.core.context import get_context
+from pmb.types import DiskPartition
 
 # Keep track of the packages we already visited in get_recommends() to avoid
 # infinite recursion
@@ -45,17 +49,21 @@ def get_subpartitions_size(chroot: Chroot) -> tuple[int, int]:
 
     :param suffix: the chroot suffix, e.g. "rootfs_qemu-amd64"
     :returns: (boot, root) the size of the boot and root
-              partition as integer in MiB
+              partition as integer in bytes
     """
     config = get_context().config
-    boot = int(config.boot_size)
+    boot = int(config.boot_size) * 1024 * 1024
 
     # Estimate root partition size, then add some free space. The size
     # calculation is not as trivial as one may think, and depending on the
     # file system etc it seems to be just impossible to get it right.
-    root = pmb.helpers.other.folder_size(chroot.path) / 1024
+    root = pmb.helpers.other.folder_size(chroot.path) * 1024
     root *= 1.20
-    root += 50 + int(config.extra_space)
+    root += 50 + int(config.extra_space) * 1024 * 1024
+    
+    # Ensure the sizes will be aligned to the sector size, up to 4k.
+    boot = ceil(boot/4096) * 4096
+    root = ceil(root/4096) * 4096
     return (boot, round(root))
 
 
@@ -160,53 +168,50 @@ def copy_files_from_chroot(args: PmbArgs, chroot: Chroot) -> None:
     pmb.chroot.user(["df", "-i", "/mnt/install"])
 
 
-def create_home_from_skel(filesystem: str, user: str) -> None:
+def create_home_from_skel(filesystem: str, user: str, rootfs: Path) -> None:
     """
     Create /home/{user} from /etc/skel
     """
-    rootfs = Chroot.native() / "mnt/install"
     # In btrfs, home subvol & home dir is created in format.py
     if filesystem != "btrfs":
-        pmb.helpers.run.root(["mkdir", rootfs / "home"])
+        (rootfs / "home").mkdir(exist_ok=True)
 
-    home = rootfs / "home" / user
+    user_home = rootfs / "home" / user
     if (rootfs / "etc/skel").exists():
-        pmb.helpers.run.root(["cp", "-a", (rootfs / "etc/skel"), home])
+        pmb.helpers.run.root(["cp", "-a", (rootfs / "etc/skel"), user_home])
     else:
-        pmb.helpers.run.root(["mkdir", home])
-    pmb.helpers.run.root(["chown", "-R", "10000", home])
+        user_home.mkdir(exist_ok=True)
+    pmb.helpers.run.root(["chown", "-R", "10000:10000", user_home])
 
 
-def configure_apk(args: PmbArgs) -> None:
+def configure_apk(args: PmbArgs, rootfs: Path) -> None:
     """
     Copy over all official keys, and the keys used to compile local packages
     (unless --no-local-pkgs is set). Then copy the corresponding APKINDEX files
-    and remove the /mnt/pmbootstrap/packages repository.
+    and remove the /cache/packages repository.
     """
     # Official keys
     keys_dir = pmb.config.apk_keys_path
 
     # Official keys + local keys
-    if args.install_local_pkgs:
-        keys_dir = get_context().config.work / "config_apk_keys"
+    keys_dir = get_context().config.cache / "keys"
 
     # Copy over keys
-    rootfs = Chroot.native() / "mnt/install"
     for key in keys_dir.glob("*.pub"):
-        pmb.helpers.run.root(["cp", key, rootfs / "etc/apk/keys/"])
+        shutil.copy(key, rootfs / "etc/apk/keys/")
 
     # Copy over the corresponding APKINDEX files from cache
     index_files = pmb.helpers.repo.apkindex_files(
         arch=pmb.parse.deviceinfo().arch, user_repository=False
     )
-    for f in index_files:
-        pmb.helpers.run.root(["cp", f, rootfs / "var/cache/apk/"])
 
-    # Disable pmbootstrap repository
-    pmb.chroot.root(
-        ["sed", "-i", r"/\/mnt\/pmbootstrap\/packages/d", "/mnt/install/etc/apk/repositories"]
+    for f in index_files:
+        shutil.copy(f, rootfs / "var/cache/apk/")
+
+    # Populate repositories
+    open(rootfs / "etc/apk/repositories", "w").write(
+        open(Chroot.native() / "etc/apk/repositories").read()
     )
-    pmb.helpers.run.user(["cat", rootfs / "etc/apk/repositories"])
 
 
 def set_user(config: Config) -> None:
@@ -229,7 +234,11 @@ def set_user(config: Config) -> None:
     groups += pmb.install.ui.get_groups(config)
 
     for group in groups:
-        pmb.chroot.root(["addgroup", "-S", group], chroot, check=False)
+        # Create system group
+        pmb.chroot.rootm(
+            [["addgroup", "-S", group], ["addgroup", config.user, group]], chroot, check=False
+        )
+        # Add user to the group
         pmb.chroot.root(["addgroup", config.user, group], chroot)
 
 
@@ -278,20 +287,17 @@ def setup_login(args: PmbArgs, config: Config, chroot: Chroot) -> None:
     :param suffix: of the chroot, where passwd will be execute (either the
                    rootfs_{args.device} or installer_{args.device}
     """
-    if not args.on_device_installer:
-        # User password
-        logging.info(f" *** SET LOGIN PASSWORD FOR: '{config.user}' ***")
-        if args.password:
-            setup_login_chpasswd_user_from_arg(args, config.user, chroot)
-        else:
-            while True:
-                try:
-                    pmb.chroot.root(
-                        ["passwd", config.user], chroot, output=RunOutputTypeDefault.INTERACTIVE
-                    )
-                    break
-                except RuntimeError:
-                    logging.info("WARNING: Failed to set the password. Try it one more time.")
+    # User password
+    logging.info(f" *** SET LOGIN PASSWORD FOR: '{config.user}' ***")
+    if args.password:
+        setup_login_chpasswd_user_from_arg(args, config.user, chroot)
+    else:
+        while True:
+            try:
+                pmb.chroot.root(["passwd", config.user], chroot, output=RunOutputTypeDefault.INTERACTIVE)
+                break
+            except RuntimeError:
+                logging.info("WARNING: Failed to set the password. Try it one more time.")
 
     # Disable root login
     if is_root_locked(chroot):
@@ -301,7 +307,7 @@ def setup_login(args: PmbArgs, config: Config, chroot: Chroot) -> None:
         pmb.chroot.root(["passwd", "-l", "root"], chroot)
 
 
-def copy_ssh_keys(config: Config) -> None:
+def copy_ssh_keys(config: Config, rootfs: Path) -> None:
     """
     If requested, copy user's SSH public keys to the device if they exist
     """
@@ -331,19 +337,18 @@ def copy_ssh_keys(config: Config) -> None:
         for key in keys:
             outfile.write(f"{key}")
 
-    target = Chroot.native() / "mnt/install/home/" / config.user / ".ssh"
-    pmb.helpers.run.root(["mkdir", target])
+    target = rootfs / "home/" / config.user / ".ssh"
+    target.mkdir(exist_ok=True)
     pmb.helpers.run.root(["chmod", "700", target])
     pmb.helpers.run.root(["cp", authorized_keys, target / "authorized_keys"])
     pmb.helpers.run.root(["rm", authorized_keys])
     pmb.helpers.run.root(["chown", "-R", "10000:10000", target])
 
 
-def setup_keymap(config: Config) -> None:
+def setup_keymap(config: Config, chroot: Chroot) -> None:
     """
     Set the keymap with the setup-keymap utility if the device requires it
     """
-    chroot = Chroot(ChrootType.ROOTFS, config.device)
     deviceinfo = pmb.parse.deviceinfo(device=config.device)
     if not deviceinfo.keymaps or deviceinfo.keymaps.strip() == "":
         logging.info("NOTE: No valid keymap specified for device")
@@ -474,16 +479,19 @@ def setup_appstream(offline: bool, chroot: Chroot) -> None:
     if "alpine-appstream-downloader" not in installed_pkgs or offline:
         return
 
-    if not pmb.chroot.root(
-        ["alpine-appstream-downloader", "/mnt/appstream-data"], chroot, check=False
-    ):
+    target_dir = Path("/cache/appstream") / chroot.arch / chroot.channel
+    logging.info(f"appstream target dir: {target_dir}")
+
+    # FIXME: it would be great to run this on the host and not potentially
+    # through QEMU!
+    if not pmb.chroot.root(["alpine-appstream-downloader", target_dir], chroot, check=False):
         pmb.chroot.root(["mkdir", "-p", "/var/lib/swcatalog"], chroot)
         pmb.chroot.root(
             [
                 "cp",
                 "-r",
-                "/mnt/appstream-data/icons",
-                "/mnt/appstream-data/xml",
+                target_dir / "icons",
+                target_dir / "xml",
                 "-t",
                 "/var/lib/swcatalog",
             ],
@@ -495,24 +503,13 @@ def print_sshd_info(args: PmbArgs) -> None:
     logging.info("")  # make the note stand out
     logging.info("*** SSH DAEMON INFORMATION ***")
 
-    if not args.ondev_no_rootfs:
-        if args.no_sshd:
-            logging.info("SSH daemon is disabled (--no-sshd).")
-        else:
-            logging.info("SSH daemon is enabled (disable with --no-sshd).")
-            logging.info(
-                f"Login as '{get_context().config.user}' with the password given"
-                " during installation."
-            )
-
-    if args.on_device_installer:
-        # We don't disable sshd in the installer OS. If the device is reachable
-        # on the network by default (e.g. Raspberry Pi), one can lock down the
-        # installer OS down by disabling the debug user (see wiki page).
+    if args.no_sshd:
+        logging.info("SSH daemon is disabled (--no-sshd).")
+    else:
+        logging.info("SSH daemon is enabled (disable with --no-sshd).")
         logging.info(
-            "SSH daemon is enabled in the installer OS, to allow debugging the installer image."
+            f"Login as '{get_context().config.user}' with the password given during installation."
         )
-        logging.info("More info: https://postmarketos.org/ondev-debug")
 
 
 def disable_service_systemd(chroot: Chroot, service_name: str) -> None:
@@ -548,8 +545,8 @@ def disable_service_openrc(chroot: Chroot, service_name: str) -> None:
         raise RuntimeError(f"Failed to disable service {service_name} (openrc): {runlevel_files}")
 
 
-def disable_service(chroot: Chroot, service_name: str) -> None:
-    if pmb.config.is_systemd_selected():
+def disable_service(config: Config, chroot: Chroot, service_name: str) -> None:
+    if pmb.config.systemd.is_systemd_selected(config):
         disable_service_systemd(chroot, service_name)
     else:
         disable_service_openrc(chroot, service_name)
@@ -624,8 +621,8 @@ def generate_binary_list(args: PmbArgs, chroot: Chroot, step: int) -> list[tuple
             )
         # Insure that embedding the firmware will not overrun the
         # first partition
-        boot_part_start = pmb.parse.deviceinfo().boot_part_start or "2048"
-        max_size = (int(boot_part_start) * 512) - (offset * step)
+        boot_part_start = pmb.parse.deviceinfo().boot_part_start
+        max_size = (boot_part_start * pmb.config.block_size) - (offset * step)
         binary_size = os.path.getsize(binary_path)
         if binary_size > max_size:
             raise RuntimeError(
@@ -740,7 +737,7 @@ def sanity_check_disk_size(args: PmbArgs) -> None:
     with open(sysfs) as handle:
         raw = handle.read()
 
-    # Size is in 512-byte blocks
+    # Size is in 512-byte blocks some of the time...
     size = int(raw.strip())
     human = f"{size / 2 / 1024 / 1024:.2f} GiB"
 
@@ -759,86 +756,63 @@ def sanity_check_disk_size(args: PmbArgs) -> None:
         raise RuntimeError("Aborted.")
 
 
-def get_ondev_pkgver(args: PmbArgs) -> str:
-    arch = pmb.parse.deviceinfo().arch
-    package = pmb.helpers.package.get("postmarketos-ondev", arch)
-    return package.version.split("-r")[0]
-
-
-def sanity_check_ondev_version(args: PmbArgs) -> None:
-    ver_pkg = get_ondev_pkgver(args)
-    ver_min = pmb.config.ondev_min_version
-    if pmb.parse.version.compare(ver_pkg, ver_min) == -1:
-        raise RuntimeError(
-            "This version of pmbootstrap requires"
-            f" postmarketos-ondev version {ver_min} or"
-            " higher. The postmarketos-ondev found in pmaports"
-            f" / in the binary packages has version {ver_pkg}."
-        )
-
-
-def get_partition_layout(reserve: bool | int, kernel: bool) -> PartitionLayout:
+def get_partition_layout(
+    chroot: Chroot, kernel: bool, split: bool, single_partition: bool, fde: bool
+) -> PartitionLayout:
     """
-    :param reserve: create an empty partition between root and boot (pma#463)
     :param kernel: create a separate kernel partition before all other
                    partitions, e.g. for the ChromeOS devices with cgpt
     :returns: the partition layout, e.g. without reserve and kernel:
               {"kernel": None, "boot": 1, "reserve": None, "root": 2}
     """
-    ret: PartitionLayout = {
-        "kernel": None,
-        "boot": 1,
-        "reserve": None,
-        "root": 2,
-    }
+    layout: PartitionLayout = PartitionLayout("/dev/install", split, fde)
 
     if kernel:
-        ret["kernel"] = 1
-        ret["boot"] += 1
-        ret["root"] += 1
+        layout.append(DiskPartition("kernel", pmb.parse.deviceinfo().cgpt_kpart_size))
 
-    if reserve:
-        ret["reserve"] = ret["root"]
-        ret["root"] += 1
-    return ret
+    (size_boot, size_root) = get_subpartitions_size(chroot)
 
+    if single_partition:
+        if kernel:
+            # FIXME: check this way earlier!
+            raise RuntimeError("--single-partition is not supported on Chromebooks, sorry!")
+        layout.append(DiskPartition("root", size_root))
+        return layout
 
-def get_uuid(args: PmbArgs, partition: Path) -> str:
-    """
-    Get UUID of a partition
+    layout.append(DiskPartition("boot", size_boot))
+    layout.append(DiskPartition("root", size_root))
 
-    :param partition: block device for getting UUID from
-    """
-    return pmb.chroot.root(
-        [
-            "blkid",
-            "-s",
-            "UUID",
-            "-o",
-            "value",
-            partition,
-        ],
-        output_return=True,
-    ).rstrip()
+    if split:
+        layout.boot.path = "/dev/installp1"
+        layout.root.path = "/dev/installp2"
+    else:
+        # Both partitions are in the same disk image and we access
+        # them with offsets
+        layout.boot.path = "/dev/install"
+        layout.root.path = "/dev/install"
+
+    return layout
 
 
-def create_crypttab(args: PmbArgs, layout: PartitionLayout | None, chroot: Chroot) -> None:
+def get_uuid(args: PmbArgs, disk: Path, partition: str) -> str:
+    pass
+
+
+def create_crypttab(args: PmbArgs, layout: PartitionLayout, disk: Path, chroot: Chroot) -> None:
     """
     Create /etc/crypttab config
 
     :param layout: partition layout from get_partition_layout() or None
     :param suffix: of the chroot, which crypttab will be created to
     """
-    root_dev = Path(f"/dev/installp{layout['root']}") if layout else Path("/dev/install")
 
-    luks_uuid = get_uuid(args, root_dev)
+    luks_uuid = layout.root.uuid
     crypttab = f"root UUID={luks_uuid} none luks\n"
 
-    (chroot / "tmp/crypttab").open("w").write(crypttab)
-    pmb.chroot.root(["mv", "/tmp/crypttab", "/etc/crypttab"], chroot)
+    (chroot / "etc/crypttab").open("w").write(crypttab)
 
 
-def create_fstab(args: PmbArgs, layout: PartitionLayout | None, chroot: Chroot) -> None:
+def create_fstab(args: PmbArgs, layout: PartitionLayout, disk: Path, chroot: Chroot) -> None:
     """
     Create /etc/fstab config
 
@@ -846,43 +820,19 @@ def create_fstab(args: PmbArgs, layout: PartitionLayout | None, chroot: Chroot) 
     :param chroot: of the chroot, which fstab will be created to
     """
 
-    # Do not install fstab into target rootfs when using on-device
-    # installer. Provide fstab only to installer suffix
-    if args.on_device_installer and chroot.type == ChrootType.ROOTFS:
-        return
-
-    if layout:
-        boot_dev = Path(f"/dev/installp{layout['boot']}")
-        root_dev = Path(f"/dev/installp{layout['root']}")
-    else:
-        boot_dev = None
-        root_dev = Path("/dev/install")
-
     root_mount_point = (
-        "/dev/mapper/root" if args.full_disk_encryption else f"UUID={get_uuid(args, root_dev)}"
+        "/dev/mapper/root" if args.full_disk_encryption else f"UUID={layout.root.uuid}"
     )
     root_filesystem = pmb.install.get_root_filesystem(args)
 
-    if root_filesystem == "btrfs":
-        # btrfs gets separate subvolumes for root, var and home
-        fstab = f"""
-# <file system> <mount point> <type> <options> <dump> <pass>
-{root_mount_point} / btrfs subvol=@,compress=zstd:2,ssd 0 0
-{root_mount_point} /home btrfs subvol=@home,compress=zstd:2,ssd 0 0
-{root_mount_point} /root btrfs subvol=@root,compress=zstd:2,ssd 0 0
-{root_mount_point} /srv btrfs subvol=@srv,compress=zstd:2,ssd 0 0
-{root_mount_point} /var btrfs subvol=@var,ssd 0 0
-{root_mount_point} /.snapshots btrfs subvol=@snapshots,compress=zstd:2,ssd 0 0
-""".lstrip()
-
-    else:
-        fstab = f"""
+    fstab = f"""
 # <file system> <mount point> <type> <options> <dump> <pass>
 {root_mount_point} / {root_filesystem} defaults 0 0
 """.lstrip()
 
-    if boot_dev:
-        boot_mount_point = f"UUID={get_uuid(args, boot_dev)}"
+    # FIXME: need a better way to check if we have a boot partition...
+    if len(layout) > 1:
+        boot_mount_point = f"UUID={layout.boot.uuid}"
         boot_options = "nodev,nosuid,noexec"
         boot_filesystem = pmb.parse.deviceinfo().boot_filesystem or "ext2"
         if boot_filesystem in ("fat16", "fat32"):
@@ -890,25 +840,38 @@ def create_fstab(args: PmbArgs, layout: PartitionLayout | None, chroot: Chroot) 
             boot_options += ",umask=0077,nosymfollow,codepage=437,iocharset=ascii"
         fstab += f"{boot_mount_point} /boot {boot_filesystem} {boot_options} 0 0\n"
 
-    with (chroot / "tmp/fstab").open("w") as f:
+    with (chroot / "etc/fstab").open("w") as f:
         f.write(fstab)
-    pmb.chroot.root(["mv", "/tmp/fstab", "/etc/fstab"], chroot)
+
+
+def get_root_filesystem(args: PmbArgs) -> str:
+    ret = args.filesystem or pmb.parse.deviceinfo().root_filesystem or "ext4"
+    pmaports_cfg = pmb.config.pmaports.read_config()
+
+    supported = pmaports_cfg.get("supported_root_filesystems", "ext4")
+    supported_list = supported.split(",")
+
+    if ret not in supported_list:
+        raise ValueError(
+            f"Root filesystem {ret} is not supported by your"
+            " currently checked out pmaports branch. Update your"
+            " branch ('pmbootstrap pull'), change it"
+            " ('pmbootstrap init'), or select one of these"
+            f" filesystems: {', '.join(supported_list)}"
+        )
+    return ret
 
 
 def install_system_image(
     args: PmbArgs,
-    size_reserve: int,
     chroot: Chroot,
     step: int,
     steps: int,
-    boot_label: str = "pmOS_boot",
-    root_label: str = "pmOS_root",
     split: bool = False,
     single_partition: bool = False,
     disk: Path | None = None,
 ) -> None:
     """
-    :param size_reserve: empty partition between root and boot in MiB (pma#463)
     :param suffix: the chroot suffix, where the rootfs that will be installed
                    on the device has been created (e.g. "rootfs_qemu-amd64")
     :param step: next installation step
@@ -920,58 +883,65 @@ def install_system_image(
     """
     config = get_context().config
     device = chroot.name
+    deviceinfo = pmb.parse.deviceinfo()
     # Partition and fill image file/disk block device
     logging.info(f"*** ({step}/{steps}) PREPARE INSTALL BLOCKDEVICE ***")
-    pmb.helpers.mount.umount_all(chroot.path)
-    (size_boot, size_root) = get_subpartitions_size(chroot)
-    if not single_partition:
-        layout = get_partition_layout(
-            size_reserve, bool(pmb.parse.deviceinfo().cgpt_kpart and args.install_cgpt)
-        )
-    else:
-        layout = None
+    pmb.chroot.shutdown(chroot)
+    layout = get_partition_layout(
+        chroot,
+        bool(deviceinfo.cgpt_kpart and args.install_cgpt),
+        split,
+        single_partition,
+        args.full_disk_encryption,
+    )
+    logging.info(f"split: {split}")
+    logging.info("Using partition layout:")
+    logging.info(", ".join([str(x) for x in layout]))
     if not args.rsync:
-        pmb.install.blockdevice.create(args, size_boot, size_root, size_reserve, split, disk)
-        if not split and layout:
-            if pmb.parse.deviceinfo().cgpt_kpart and args.install_cgpt:
-                pmb.install.partition_cgpt(layout, size_boot, size_reserve)
+        pmb.install.blockdevice.create(layout, split, disk)
+        if not split and not single_partition:
+            if deviceinfo.cgpt_kpart and args.install_cgpt:
+                pmb.install.partition_cgpt(layout)
             else:
-                pmb.install.partition(layout, size_boot, size_reserve)
+                pmb.install.partition(layout)
+        else:
+            layout.root.offset = 0
+            if not single_partition:
+                layout.boot.offset = 0
 
-    # Inform kernel about changed partition table in case parted couldn't
-    pmb.chroot.root(["partprobe", "/dev/install"], check=False)
+    # if not split and not single_partition:
+    #     assert layout  # Initialized above for not single_partition case (mypy needs this)
+    #     pmb.install.partitions_mount(device, layout, disk)
 
-    if not split and not single_partition:
-        assert layout  # Initialized above for not single_partition case (mypy needs this)
-        pmb.install.partitions_mount(device, layout, disk)
-
-    pmb.install.format(args, layout, boot_label, root_label, disk)
+    layout.root.filesystem = get_root_filesystem(args)
+    layout.boot.filesystem = deviceinfo.boot_filesystem or "ext2"
 
     # Since we shut down the chroot we need to mount it again
-    pmb.chroot.mount(chroot)
+    pmb.chroot.init(chroot)
 
     # Create /etc/fstab and /etc/crypttab
     logging.info("(native) create /etc/fstab")
-    create_fstab(args, layout, chroot)
+    # FIXME: don't hardcode /dev/install everywhere!
+    create_fstab(args, layout, "/dev/install", chroot)
     if args.full_disk_encryption:
         logging.info("(native) create /etc/crypttab")
-        create_crypttab(args, layout, chroot)
+        create_crypttab(args, layout, "/dev/install", chroot)
 
     # Run mkinitfs to pass UUIDs to cmdline
     logging.info(f"({chroot}) mkinitfs")
     pmb.chroot.root(["mkinitfs"], chroot)
 
     # Clean up after running mkinitfs in chroot
-    pmb.helpers.mount.umount_all(chroot.path)
-    pmb.helpers.run.root(["rm", chroot / "in-pmbootstrap"])
-    pmb.chroot.remove_mnt_pmbootstrap(chroot)
+    pmb.chroot.shutdown(chroot)
 
     # Just copy all the files
-    logging.info(f"*** ({step + 1}/{steps}) FILL INSTALL BLOCKDEVICE ***")
-    copy_files_from_chroot(args, chroot)
-    create_home_from_skel(args.filesystem, config.user)
-    configure_apk(args)
-    copy_ssh_keys(config)
+    logging.info(f"*** ({step + 1}/{steps}) FORMAT AND COPY BLOCKDEVICE ***")
+    create_home_from_skel(args.filesystem, config.user, chroot.path)
+    configure_apk(args, chroot.path)
+    copy_ssh_keys(config, chroot.path)
+
+    # The formatting step also copies files into the disk image
+    pmb.install.format(args, layout, chroot.path, disk)
 
     # Don't try to embed firmware and cgpt on split images since there's no
     # place to put it and it will end up in /dev of the chroot instead
@@ -982,12 +952,11 @@ def install_system_image(
 
     if disk:
         logging.info(f"Unmounting disk {disk} (this may take a while to sync, please wait)")
-    pmb.chroot.shutdown(True)
 
     # Convert rootfs to sparse using img2simg
     sparse = args.sparse
     if sparse is None:
-        sparse = pmb.parse.deviceinfo().flash_sparse == "true"
+        sparse = deviceinfo.flash_sparse == "true"
 
     if sparse and not split and not disk:
         workdir = Path("/home/pmos/rootfs")
@@ -999,7 +968,7 @@ def install_system_image(
         pmb.chroot.user(["mv", "-f", sys_image_sparse, sys_image], working_dir=workdir)
 
         # patch sparse image for Samsung devices if specified
-        samsungify_strategy = pmb.parse.deviceinfo().flash_sparse_samsung_format
+        samsungify_strategy = deviceinfo.flash_sparse_samsung_format
         if samsungify_strategy:
             logging.info("(native) convert sparse image into Samsung's sparse image format")
             pmb.chroot.apk.install(["sm-sparse-image-tool"], Chroot.native())
@@ -1131,90 +1100,6 @@ def install_recovery_zip(args: PmbArgs, device: str, arch: Arch, steps: int) -> 
     logging.info("*** FLASHING INFORMATION ***")
     logging.info("Flashing with the recovery zip is explained here:")
     logging.info("https://postmarketos.org/recoveryzip")
-
-
-def install_on_device_installer(args: PmbArgs, step: int, steps: int) -> None:
-    # Generate the rootfs image
-    config = get_context().config
-    if not args.ondev_no_rootfs:
-        suffix_rootfs = Chroot.rootfs(config.device)
-        install_system_image(args, 0, suffix_rootfs, step=step, steps=steps, split=True)
-        step += 2
-
-    # Prepare the installer chroot
-    logging.info(f"*** ({step}/{steps}) CREATE ON-DEVICE INSTALLER ROOTFS ***")
-    step += 1
-    packages = [
-        f"device-{config.device}",
-        "postmarketos-ondev",
-        *get_kernel_package(config),
-        *get_nonfree_packages(config.device),
-    ]
-
-    chroot_installer = Chroot(ChrootType.INSTALLER, config.device)
-    pmb.chroot.apk.install(packages, chroot_installer)
-
-    # Move rootfs image into installer chroot
-    img_path_dest = chroot_installer / "var/lib/rootfs.img"
-    if not args.ondev_no_rootfs:
-        img = f"{config.device}-root.img"
-        img_path_src = Chroot.native() / "home/pmos/rootfs" / img
-        logging.info(f"({chroot_installer}) add {img} as /var/lib/rootfs.img")
-        pmb.install.losetup.umount(img_path_src)
-        pmb.helpers.run.root(["mv", img_path_src, img_path_dest])
-
-    # Run ondev-prepare, so it may generate nice configs from the channel
-    # properties (e.g. to display the version number), or transform the image
-    # file into another format. This can all be done without pmbootstrap
-    # changes in the postmarketos-ondev package.
-    logging.info(f"({chroot_installer}) ondev-prepare")
-    channel = pmb.config.pmaports.read_config()["channel"]
-    channel_cfg = pmb.config.pmaports.read_config_channel()
-    env: Env = {
-        "ONDEV_CHANNEL": channel,
-        "ONDEV_CHANNEL_BRANCH_APORTS": channel_cfg["branch_aports"],
-        "ONDEV_CHANNEL_BRANCH_PMAPORTS": channel_cfg["branch_pmaports"],
-        "ONDEV_CHANNEL_DESCRIPTION": channel_cfg["description"],
-        "ONDEV_CHANNEL_MIRRORDIR_ALPINE": channel_cfg["mirrordir_alpine"],
-        "ONDEV_CIPHER": args.cipher,
-        "ONDEV_PMBOOTSTRAP_VERSION": pmb.__version__,
-        "ONDEV_UI": config.ui,
-    }
-    pmb.chroot.root(["ondev-prepare"], chroot_installer, env=env)
-
-    # Copy files specified with 'pmbootstrap install --ondev --cp'
-    if args.ondev_cp:
-        for host_src, chroot_dest in args.ondev_cp:
-            host_dest = chroot_installer / chroot_dest
-            logging.info(f"({chroot_installer}) add {host_src} as {chroot_dest}")
-            pmb.helpers.run.root(["install", "-Dm644", host_src, host_dest])
-
-    # Remove $DEVICE-boot.img (we will generate a new one if --split was
-    # specified, otherwise the separate boot image is not needed)
-    if not args.ondev_no_rootfs:
-        img_boot = f"{config.device}-boot.img"
-        logging.info(f"(native) rm {img_boot}")
-        pmb.chroot.root(["rm", f"/home/pmos/rootfs/{img_boot}"])
-
-    # Disable root login
-    setup_login(args, config, chroot_installer)
-
-    # Generate installer image
-    size_reserve = round(os.path.getsize(img_path_dest) / 1024 / 1024) + 200
-    pmaports_cfg = pmb.config.pmaports.read_config()
-    boot_label = pmaports_cfg.get("supported_install_boot_label", "pmOS_inst_boot")
-    install_system_image(
-        args,
-        size_reserve,
-        chroot_installer,
-        step,
-        steps,
-        boot_label,
-        "pmOS_install",
-        args.split,
-        args.single_partition,
-        args.disk,
-    )
 
 
 def get_selected_providers(args: PmbArgs, packages: list[str]) -> list[str]:
@@ -1365,11 +1250,7 @@ def create_device_rootfs(args: PmbArgs, step: int, steps: int) -> None:
     # postmarketos-base supports a dummy package for blocking unl0kr install
     # when not required
     if pmaports_cfg.get("supported_base_nofde", None):
-        # The ondev installer *could* enable fde at runtime, so include it
-        # explicitly in the rootfs until there's a mechanism to selectively
-        # install it when the ondev installer is running.
-        # Always install it when --fde is specified.
-        if args.full_disk_encryption or args.on_device_installer:
+        if args.full_disk_encryption:
             # Pick the most suitable unlocker depending on the packages
             # selected for installation
             unlocker = pmb.parse.depends.package_provider(
@@ -1391,7 +1272,7 @@ def create_device_rootfs(args: PmbArgs, step: int, steps: int) -> None:
 
     # Install the base-systemd package first to make sure presets are available
     # when services are installed later
-    if pmb.config.other.is_systemd_selected(context.config):
+    if pmb.config.systemd.is_systemd_selected(context.config):
         pmb.chroot.apk.install(["postmarketos-base-systemd"], chroot)
 
     # Install all packages to device rootfs chroot (and rebuild the initramfs,
@@ -1405,7 +1286,7 @@ def create_device_rootfs(args: PmbArgs, step: int, steps: int) -> None:
     setup_login(args, config, chroot)
 
     # Set the keymap if the device requires it
-    setup_keymap(config)
+    setup_keymap(config, chroot)
 
     # Set timezone
     setup_timezone(chroot, config.timezone)
@@ -1419,9 +1300,9 @@ def create_device_rootfs(args: PmbArgs, step: int, steps: int) -> None:
     setup_appstream(context.offline, chroot)
 
     if args.no_sshd:
-        disable_service(chroot, "sshd")
+        disable_service(config, chroot, "sshd")
     if args.no_firewall:
-        disable_service(chroot, "nftables")
+        disable_service(config, chroot, "nftables")
 
 
 def install(args: PmbArgs) -> None:
@@ -1433,8 +1314,6 @@ def install(args: PmbArgs) -> None:
     if not args.android_recovery_zip and args.disk:
         sanity_check_disk(args)
         sanity_check_disk_size(args)
-    if args.on_device_installer:
-        sanity_check_ondev_version(args)
 
     # --single-partition implies --no-split. There is nothing to split if
     # there is only a single partition.
@@ -1448,8 +1327,6 @@ def install(args: PmbArgs) -> None:
         steps = 2
     elif args.android_recovery_zip:
         steps = 3
-    elif args.on_device_installer:
-        steps = 4 if args.ondev_no_rootfs else 7
     else:
         steps = 4
 
@@ -1463,22 +1340,16 @@ def install(args: PmbArgs) -> None:
     pmb.chroot.apk.install(pmb.config.install_native_packages, Chroot.native(), build=False)
     step += 1
 
-    if not args.ondev_no_rootfs:
-        create_device_rootfs(args, step, steps)
-        step += 1
+    create_device_rootfs(args, step, steps)
+    step += 1
 
     if args.no_image:
         return
     elif args.android_recovery_zip:
         return install_recovery_zip(args, device, deviceinfo.arch, steps)
-
-    if args.on_device_installer:
-        # Runs install_system_image twice
-        install_on_device_installer(args, step, steps)
     else:
         install_system_image(
             args,
-            0,
             chroot,
             step,
             steps,

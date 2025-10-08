@@ -46,38 +46,13 @@ def check_grsec() -> None:
     )
 
 
-def check_binfmt_misc() -> None:
-    """Check if the 'binfmt_misc' module is loaded.
-
-    This is done by checking, if /proc/sys/fs/binfmt_misc/ exists.
-    If it exists, then do nothing.
-    Otherwise, load the module and mount binfmt_misc.
-    If that fails as well, raise an exception pointing the user to the wiki.
-    """
-    path = "/proc/sys/fs/binfmt_misc/status"
-    if os.path.exists(path):
-        return
-
-    # check=False: this might be built-in instead of being a module
-    pmb.helpers.run.root(["modprobe", "binfmt_misc"], check=False)
-
-    # check=False: we check it below and print a more helpful message on error
-    pmb.helpers.run.root(
-        ["mount", "-t", "binfmt_misc", "none", "/proc/sys/fs/binfmt_misc"], check=False
-    )
-
-    if not os.path.exists(path):
-        link = "https://postmarketos.org/binfmt_misc"
-        raise RuntimeError(f"Failed to set up binfmt_misc, see: {link}")
-
-
-def migrate_success(work: Path, version: int) -> None:
+def migrate_success(localdir: Path, version: int) -> None:
     logging.info("Migration to version " + str(version) + " done")
-    with open(work / "version", "w") as handle:
+    with open(localdir / "version", "w") as handle:
         handle.write(str(version) + "\n")
 
 
-def migrate_work_folder() -> None:
+def migrate_localdir() -> None:
     # Read current version
     context = get_context()
     current = 0
@@ -155,7 +130,7 @@ def migrate_work_folder() -> None:
         raise NonBugError(
             "Sorry, we can't migrate that automatically. Please"
             " run 'pmbootstrap shutdown', then delete your"
-            " current work folder manually ('sudo rm -rf "
+            " current localdir manually ('sudo rm -rf "
             f"{context.config.work}') and start over with 'pmbootstrap"
             " init'. All your binary packages and caches will"
             " be lost."

@@ -31,10 +31,13 @@ def config_file(tmp_path_factory: TempPathFactory, request: FixtureRequest) -> P
         flavour = request.param
 
     out_file = tmp_path / "pmbootstrap_v3.cfg"
-    workdir = tmp_path / "work"
-    workdir.mkdir()
+    workdir = tmp_path / "cache"
+    if not (workdir / "git").exists():
+        (workdir / "git").mkdir(exist_ok=True, parents=True)
+        # Copy our test pmaports to the workdir
+        shutil.copytree(Path("./test/data/pmaports"), (workdir / "cache/git/pmaports"))
 
-    configs = {"default": f"aports = {workdir / 'cache_git' / 'pmaports'}", "no-repos": "aports = "}
+    configs = {"default": f"aports = {workdir / 'cache/git/pmaports'}", "no-repos": "aports = "}
 
     file = _testdir / "pmbootstrap_v3.cfg"
     print(f"CONFIG: {out_file}")
@@ -62,7 +65,7 @@ def device_package(config_file: Path) -> Path:
 def find_required_programs() -> None:
     """Fixture to find required programs for pmbootstrap."""
 
-    pmb.config.require_programs()
+    pmb.config.init.require_programs()
 
 
 @pytest.fixture
@@ -148,10 +151,10 @@ def pmb_args(config_file: Path, mock_context: None, logfile: Path) -> None:
 
     init_args(args)
 
-    print(f"WORK: {get_context().config.work}")
+    print(f"WORK: {get_context().config.cache}")
 
     # Sanity check
-    assert ".pytest_tmp" in get_context().config.work.parts
+    assert ".pytest_tmp" in get_context().config.cache.parts
 
 
 @pytest.fixture
