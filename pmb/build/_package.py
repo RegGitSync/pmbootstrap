@@ -388,11 +388,16 @@ def process_package(
 
     # Also traverse subpackage depends, they shouldn't be included in base_depends since they
     # aren't needed for building (and can conflict with depends for other subpackages)
-    depends += functools.reduce(
-        operator.iadd,
-        map(lambda sp: sp["depends"] if sp else [], base_apkbuild["subpackages"].values()),
-        [],
-    )
+    for subpkg in base_apkbuild["subpackages"].values():
+        if not subpkg:
+            continue
+        for sp in subpkg["depends"]:
+            if pmb.helpers.package.check_arch(sp, arch):
+                depends += [sp]
+            else:
+                logging.debug(
+                    f"{arch}/{pkgname}: Can't build subpkg dep {sp} for {arch}, ignoring it"
+                )
 
     parent = pkgname
     while len(depends):
