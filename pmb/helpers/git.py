@@ -127,7 +127,7 @@ def get_upstream_remote(aports: Path) -> str:
     urls = pmb.config.git_repos[name_repo]
     lines = list_remotes(aports)
     for line in lines:
-        line_url = line.split("\t", 1)[1].split(" ", 1)[0]
+        line_url = line.split("\t", 1)[1]
         parsed = urlparse(line_url)
         clean_url = f"{parsed.scheme}://{parsed.hostname}{parsed.path}"
 
