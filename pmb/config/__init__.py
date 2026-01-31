@@ -132,6 +132,7 @@ filesystems = {
     "fat16": "dosfstools",
     "fat32": "dosfstools",
     "xfs": "xfsprogs",
+    "zfs": "zfs",
 }
 
 # Legacy channels and their new names (pmb#2015)
@@ -218,6 +219,7 @@ chroot_device_nodes = [
     [644, "c", 1, 9, "urandom"],
     [666, "c", 5, 0, "tty"],
     [666, "c", 5, 2, "ptmx"],
+    [666, "c", 10, 249, "zfs"],
 ]
 
 # Age in hours that we keep the APKINDEXes before downloading them again.

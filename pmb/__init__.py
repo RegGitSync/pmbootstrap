@@ -58,7 +58,6 @@ def print_log_hint() -> None:
 
 def main() -> int:
     # Wrap everything to display nice error messages
-
     args: PmbArgs
     try:
         # Parse arguments, set up logging
