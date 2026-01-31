@@ -163,8 +163,8 @@ def copy_files_from_chroot(chroot: Chroot, rsync: bool, verbose: bool) -> None:
 def create_home_from_skel(filesystem: str, user: str) -> None:
     """Create /home/{user} from /etc/skel"""
     rootfs = Chroot.native() / "mnt/install"
-    # In btrfs, home subvol & home dir is created in format.py
-    if filesystem != "btrfs":
+    # In btrfs and zfs, home subvol/dataset & home dir is created in format.py
+    if filesystem not in ["btrfs", "zfs"]:
         pmb.helpers.run.root(["mkdir", rootfs / "home"])
 
     home = rootfs / "home" / user
@@ -848,6 +848,7 @@ def create_fstab(
     on_device_installer: bool,
     filesystem: str,
     full_disk_encryption: bool,
+    root_label: str | None,
 ) -> None:
     """
     Create /etc/fstab config
@@ -885,6 +886,13 @@ def create_fstab(
 {root_mount_point} /srv btrfs subvol=@srv,compress=zstd:2,ssd 0 0
 {root_mount_point} /var btrfs subvol=@var,ssd 0 0
 {root_mount_point} /.snapshots btrfs subvol=@snapshots,compress=zstd:2,ssd 0 0
+""".lstrip()
+
+    elif root_filesystem == "zfs":
+        # zfs only root dataset (legacy), other datasets are mounted by zfs mount
+        fstab = f"""
+# <file system> <mount point> <type> <options> <dump> <pass>
+{root_label}/ROOT/default / zfs x-initrd.mount,zfsutil 0 0
 """.lstrip()
 
     else:
@@ -981,7 +989,7 @@ def install_system_image(
     # Create /etc/fstab and /etc/crypttab
     logging.info("(native) create /etc/fstab")
     create_fstab(
-        layout, chroot, args.on_device_installer, args.filesystem, args.full_disk_encryption
+        layout, chroot, args.on_device_installer, args.filesystem, args.full_disk_encryption, root_label
     )
     if args.full_disk_encryption:
         logging.info("(native) create /etc/crypttab")

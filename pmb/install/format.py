@@ -71,6 +71,8 @@ def format_partition_with_filesystem(
                 "size=" + str(sector_size),
             ]
         mkfs_args += ["-L", label]
+    elif filesystem == "zfs":
+        mkfs_args = ["echo", "build zpool later with name:", label, "on device:"]
     else:
         raise RuntimeError("Filesystem " + filesystem + " is not supported!")
 
@@ -207,6 +209,60 @@ def prepare_btrfs_subvolumes(device: str, mountpoint: str) -> None:
     pmb.chroot.root(["chattr", "+C", f"{mountpoint}/var"])
 
 
+def prepare_zfs(device: str, mountpoint: str, poolname: str) -> None:
+    """
+    Create separate dataset if root filesystem is zfs.
+    This lets us do snapshots and rollbacks of relevant parts
+    of the filesystem.
+    /tmp has temporary files, snapshotting them is unnecessary,
+    """
+    # ZFS dataset on root pool (and his zfs options)
+    # fmt: off
+    dataset_list = [
+        ("ROOT",                  {"mountpoint": "none"}),
+        ("ROOT/default",          {"mountpoint": "/", "canmount": "noauto"}),
+        ("data",                  {"mountpoint": "none"}),
+        ("data/home",             {"mountpoint": "/home"}),
+        ("local",                 {"mountpoint": "none"}),
+        ("local/var",             {"mountpoint": "/var"}),
+        ("local/var/log",         {"mountpoint": "/var/log"}),
+        ("local/var/log/journal", {"mountpoint": "/var/log/journal", "acltype": "posixacl"}),
+    ]
+    # fmt: on
+
+    # Create ZFS pool on device
+    # fmt: off
+    pmb.chroot.root(["zpool", "create", "-f",
+        "-o", "ashift=12",
+        "-O", "acltype=posixacl",
+        "-O", "relatime=on",
+        "-O", "xattr=sa",
+        "-O", "dnodesize=auto",
+        "-O", "normalization=formD",
+        "-O", "mountpoint=none",
+        "-O", "canmount=off",
+        "-O", "devices=off",
+        "-R", mountpoint,
+        poolname, device
+    ])
+    # fmt: on
+
+    # create all dataset
+    for ds, zfs_options in dataset_list:
+        dataset = f"{poolname}/{ds}"
+        option_args = [x for (k, v) in zfs_options.items() for x in ["-o", k, v]]
+        pmb.chroot.root(["zfs", "create", dataset, *option_args])
+
+    # set dataset for booting, the root dataset
+    pmb.chroot.root(["zpool", "set", f"bootfs={poolname}/ROOT/default", poolname])
+
+    # mount every dataset (current manuelle)
+    for ds, zfs_options in dataset_list:
+        if zfs_options.get("canmount", "none") != "none":
+            continue
+        pmb.chroot.root(["zfs", "mount", ds])
+
+
 def format_and_mount_root(
     device: str, root_label: str, disk: PathString | None, rsync: bool, filesystem: str | None
 ) -> None:
@@ -226,11 +282,14 @@ def format_and_mount_root(
     mountpoint = "/mnt/install"
     logging.info("(native) mount " + device + " to " + mountpoint)
     pmb.chroot.root(["mkdir", "-p", mountpoint])
-    pmb.chroot.root(["mount", device, mountpoint])
+    if filesystem != "zfs":
+        pmb.chroot.root(["mount", device, mountpoint])
 
     if not rsync and filesystem == "btrfs":
         # Make flat btrfs subvolume layout
         prepare_btrfs_subvolumes(device, mountpoint)
+    if not rsync and filesystem == "zfs":
+        prepare_zfs(device, mountpoint, root_label)
 
 
 def format(
