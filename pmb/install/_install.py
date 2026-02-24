@@ -1131,7 +1131,11 @@ def print_flash_info(
     # (e.g. an Android boot image is generated). In that case, "flash_kernel"
     # works even when partitions are split or installing to disk. This is not
     # possible if the flash method requires split partitions.
-    if "flash_kernel" in flasher_actions and (not requires_split or split):
+    if (
+        "flash_kernel" in flasher_actions
+        and ("flash_lk2nd" not in flasher_actions)
+        and (not requires_split or split)
+    ):
         logging.info("* pmbootstrap flasher flash_kernel")
         logging.info("  Flashes the kernel + initramfs to your device:")
         if requires_split:
