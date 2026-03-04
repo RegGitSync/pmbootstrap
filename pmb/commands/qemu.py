@@ -272,6 +272,11 @@ def command_qemu(
                 "-drive",
                 f"if=pflash,format=raw,readonly=on,file={edk2_chroot}/usr/share/edk2/riscv/RISCV_VIRT_CODE.fd",
             ]
+        case Arch.armv7:
+            command += [
+                "-drive",
+                f"if=pflash,format=raw,readonly=on,file={edk2_chroot}/usr/share/qemu/edk2-arm-code.fd",
+            ]
         case _:
             raise RuntimeError(f"Architecture {arch} not configured for EFI support.")
 
@@ -392,6 +397,8 @@ def install_depends(arch: Arch) -> None:
             pass
         case Arch.riscv64:
             edk2_pkg = "ovmf"
+        case Arch.armv7:
+            edk2_pkg = "qemu-system-arm"
         case _:
             raise RuntimeError(f"Architecture {arch} not configured for EFI support.")
 
