@@ -309,16 +309,25 @@ apkbuild_attributes = {
 }
 
 # Valid types for the 'chassis' attribute in deviceinfo
-# See https://www.freedesktop.org/software/systemd/man/machine-info.html
+# Merged from devicetree specification and systemd:
+# https://github.com/devicetree-org/devicetree-specification/pull/45
+# https://www.freedesktop.org/software/systemd/man/machine-info.html
 deviceinfo_chassis_types = [
-    "desktop",
-    "laptop",
+    # From devicetree specification
+    "all-in-one",
     "convertible",
-    "server",
-    "tablet",
-    "handset",
-    "watch",
+    "desktop",
     "embedded",
+    "handheld",
+    "handset",
+    "laptop",
+    "server",
+    "spectacles",
+    "tablet",
+    "television",
+    "watch",
+    # From systemd (for virtual/containerized systems)
+    "container",
     "vm",
 ]
 
