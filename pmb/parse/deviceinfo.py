@@ -221,6 +221,7 @@ class Deviceinfo:
     sd_embed_firmware_step_size: str | None = ""
     partition_blacklist: str | None = ""
     boot_part_start: str | None = ""
+    main_gpt_start: str | None = ""
     partition_type: str | None = ""
     root_filesystem: str | None = ""
     flash_kernel_on_update: str | None = ""

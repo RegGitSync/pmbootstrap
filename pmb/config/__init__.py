@@ -336,7 +336,7 @@ default_ip = "172.16.42.1"
 # Packages that will be installed inside the native chroot to perform
 # the installation to the device.
 # util-linux: losetup, fallocate
-install_native_packages = ["cryptsetup", "util-linux", "parted"]
+install_native_packages = ["cryptsetup", "util-linux", "parted", "sgdisk"]
 install_device_packages = ["postmarketos-base"]
 
 #

@@ -97,33 +97,53 @@ def partition(layout: PartitionLayout, size_boot: int, size_reserve: int) -> Non
     # will stop there (see #463).
     boot_part_start = pmb.parse.deviceinfo().boot_part_start or "2048"
 
+    main_gpt_start = pmb.parse.deviceinfo().main_gpt_start or "2"
+
     partition_type = pmb.parse.deviceinfo().partition_type or "gpt"
-
-    commands = [
-        ["mktable", partition_type],
-        ["mkpart", "primary", filesystem, boot_part_start + "s", mb_boot],
-    ]
-
-    if size_reserve:
-        mb_reserved_end = f"{round(size_reserve + size_boot)}M"
-        commands += [["mkpart", "primary", mb_boot, mb_reserved_end]]
 
     arch = str(pmb.parse.deviceinfo().arch)
 
-    commands += [["mkpart", "primary", mb_root_start, "100%"]]
     if partition_type.lower() == "gpt":
-        commands += [
-            ["type", str(layout["root"]), pmb.core.dps.root[arch][1]],
-            # esp is an alias for boot on GPT
-            ["set", str(layout["boot"]), "esp", "on"],
-            ["type", str(layout["boot"]), pmb.core.dps.boot["esp"][1]],
+        commands = [
+            ["-Z"],
+            ["-j", main_gpt_start],
+            [
+                "-n",
+                "1:" + boot_part_start + ":+" + mb_boot,
+                "-t",
+                "1:" + pmb.core.dps.boot["esp"][1],
+            ],
         ]
-    # Some devices still use MBR and will not work with only esp set
-    elif partition_type.lower() == "msdos":
-        commands += [["set", str(layout["boot"]), "boot", "on"]]
 
-    for command in commands:
-        pmb.chroot.root(["parted", "-s", "/dev/install", *command], check=False)
+        if size_reserve:
+            commands += [
+                ["-n", "2::+" + mb_reserved],
+                ["-n", "3::", "-t", "3:" + pmb.core.dps.root[arch][1]],
+            ]
+        else:
+            commands += [
+                ["-n", "2::", "-t", "2:" + pmb.core.dps.root[arch][1]],
+            ]
+
+        for command in commands:
+            pmb.chroot.root(["sgdisk", *command, "/dev/install"], check=True)
+    elif partition_type.lower() == "msdos":
+        commands = [
+            ["mktable", "msdos"],
+            ["mkpart", "primary", filesystem, boot_part_start + "s", mb_boot],
+        ]
+
+        if size_reserve:
+            mb_reserved_end = f"{round(size_reserve + size_boot)}M"
+            commands += [["mkpart", "primary", mb_boot, mb_reserved_end]]
+
+        commands += [
+            ["mkpart", "primary", mb_root_start, "100%"],
+            ["set", str(layout["boot"]), "boot", "on"],
+        ]
+
+        for command in commands:
+            pmb.chroot.root(["parted", "-s", "/dev/install", *command], check=False)
 
 
 def partition_cgpt(layout: PartitionLayout, size_boot: int, size_reserve: int) -> None:

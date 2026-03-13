@@ -98,6 +98,7 @@ deviceinfo_keys = [
     "sd_embed_firmware_step_size",
     "partition_blacklist",
     "boot_part_start",
+    "main_gpt_start",
     "partition_type",
     "mkinitfs_postprocess",
     "Variable",
