@@ -286,7 +286,9 @@ def ask_for_ui_extras(config: Config, ui: str) -> bool:
     return pmb.helpers.cli.confirm("Enable this package?", default=config.ui_extras)
 
 
-def ask_for_systemd(config: Config, ui: str) -> SystemdConfig:
+def ask_for_systemd(
+    config: Config, ui: str, is_systemd_recommended_for_device: bool
+) -> SystemdConfig:
     if "systemd" not in pmb.config.pmaports.read_config_repos():
         return config.systemd
 
@@ -307,7 +309,7 @@ def ask_for_systemd(config: Config, ui: str) -> SystemdConfig:
     answer = pmb.helpers.cli.ask(
         "Install systemd?",
         choices,
-        str(config.systemd),
+        str(config.systemd) if is_systemd_recommended_for_device else "never",
         validation_regex=f"^({'|'.join(choices)})$",
         complete=choices,
     )
@@ -867,7 +869,7 @@ def ask_for_locale(current_locale: str) -> str:
         return f"{ret}.UTF-8"
 
 
-def print_systemd_warning(device_exists: bool, apkbuild: Apkbuild, kernel: str) -> None:
+def print_systemd_warning(device_exists: bool, apkbuild: Apkbuild, kernel: str) -> bool:
     kernel_version = None
     if device_exists:
         linuxdep = next((pkg for pkg in apkbuild["depends"] if pkg.startswith("linux-")), None)
@@ -899,6 +901,7 @@ def print_systemd_warning(device_exists: bool, apkbuild: Apkbuild, kernel: str) 
         )
         == -1
     )
+    is_systemd_recommended = True
     if systemd_warning:
         warning_text = ""
         if kernel_version is None:
@@ -906,12 +909,14 @@ def print_systemd_warning(device_exists: bool, apkbuild: Apkbuild, kernel: str) 
                 f"WARNING: systemd requires kernel version {systemd_req}."
                 + " Installing systemd with older kernel may result in non-bootable system."
             )
+            is_systemd_recommended = False
         elif pmb.parse.version.compare(kernel_version, systemd_req) == -1:
             warning_text = (
                 f"WARNING: Kernel version {kernel_version} "
                 + f"is lower than systemd's minimal requirement ({systemd_req})."
                 + " Choosing systemd may result in non-bootable system."
             )
+            is_systemd_recommended = False
         else:
             warning_text = (
                 f"WARNING: Kernel version {kernel_version} "
@@ -921,6 +926,8 @@ def print_systemd_warning(device_exists: bool, apkbuild: Apkbuild, kernel: str) 
         systemd_readme = "https://github.com/systemd/systemd/blob/main/README"
         warning_text += f" Get more information for systemd requirements at {systemd_readme}"
         logging.warning(warning_text)
+
+    return is_systemd_recommended
 
 
 def frontend(args: PmbArgs) -> None:
@@ -978,8 +985,10 @@ def frontend(args: PmbArgs) -> None:
     config.ui_extras = ask_for_ui_extras(config, ui)
 
     # systemd
-    print_systemd_warning(device_exists, apkbuild, config.kernel)
-    config.systemd = ask_for_systemd(config, ui)
+    is_systemd_recommended_for_device = print_systemd_warning(
+        device_exists, apkbuild, config.kernel
+    )
+    config.systemd = ask_for_systemd(config, ui, is_systemd_recommended_for_device)
 
     ask_for_provider_select_pkg(f"postmarketos-ui-{ui}", config.providers)
     ask_for_additional_options(config)
