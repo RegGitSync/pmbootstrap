@@ -8,7 +8,6 @@ import pmb.helpers.git
 import pmb.helpers.run
 from pmb.core.arch import Arch
 from pmb.core.context import get_context
-from pmb.core.pkgrepo import pkgrepo_default_path
 
 
 def depends_for_sonames(libraries: dict[str, str], arch_libc: Arch) -> list:
@@ -74,14 +73,8 @@ def generate(pkgname: str) -> None:
     if prefix == "gcc":
         upstream = pmb.aportgen.core.get_upstream_aport("gcc", arch)
         based_on = "main/gcc (from Alpine)"
-    elif prefix == "gcc4":
-        upstream = pkgrepo_default_path() / "main/gcc4"
-        based_on = "main/gcc4 (from postmarketOS)"
-    elif prefix == "gcc6":
-        upstream = pkgrepo_default_path() / "main/gcc6"
-        based_on = "main/gcc6 (from postmarketOS)"
     else:
-        raise ValueError(f"Invalid prefix '{prefix}', expected gcc, gcc4 or gcc6.")
+        raise ValueError(f"Invalid prefix '{prefix}', expected gcc.")
     pmb.helpers.run.user(["cp", "-r", upstream, context.config.work / "aportgen"])
 
     # Rewrite APKBUILD

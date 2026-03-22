@@ -143,8 +143,10 @@ initialize_chroot() {
 		if [ "$gcc6_arg" = "1" ]; then
 			gcc_pkgname="gcc6"
 		elif [ "$gcc4_arg" = "1" ]; then
+			need_cross_compiler=0
 			gcc_pkgname="gcc4"
 		elif [ "$gcc_arg" = "1" ]; then
+			need_cross_compiler=0
 			gcc_pkgname="gcc"
 		fi
 
@@ -256,13 +258,11 @@ set_alias_make() {
 		arch_to_hostspec "$deviceinfo_arch")"
 
 	if [ "$gcc6_arg" = "1" ]; then
-		cc="gcc6-${prefix}-gcc"
+		cc="gcc6-gcc"
 		hostcc="gcc6-gcc"
-		cross_compiler="/usr/bin/gcc6-$prefix-"
 	elif [ "$gcc4_arg" = "1" ]; then
-		cc="gcc4-${prefix}-gcc"
+		cc="gcc4-gcc"
 		hostcc="gcc4-gcc"
-		cross_compiler="/usr/bin/gcc4-$prefix-"
 	else
 		cc="${prefix}-gcc"
 		hostcc="gcc"
@@ -389,8 +389,8 @@ print_usage() {
 	fi
 	echo "optional arguments:"
 	echo "    --fish        Print fish alias syntax (internally used)"
-	echo "    --gcc6        Use GCC6 cross compiler"
-	echo "    --gcc4        Use GCC4 cross compiler"
+	echo "    --gcc6        Use GCC6 compiler (QEMU)"
+	echo "    --gcc4        Use GCC4 compiler (QEMU)"
 	echo "    --gcc         Use GCC cross compiler"
 	echo "    --help        Show this help message"
 }
