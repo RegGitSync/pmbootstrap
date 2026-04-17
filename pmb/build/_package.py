@@ -66,6 +66,20 @@ def check_build_for_arch(pkgname: str, arch: Arch) -> bool:
     raise RuntimeError(f"Can't build '{pkgname}' for architecture {arch}")
 
 
+def filter_depends(apkbuild: dict[str, Any], depends: list[str]) -> list[str]:
+    ret = depends
+
+    # dict with pkgname_without_version: pkgname_with_version
+    without_versions = {depend.split("=")[0]: depend for depend in ret}
+
+    # Don't recurse forever when a package depends on itself (#948)
+    for pkgname in [apkbuild["pkgname"], *apkbuild["subpackages"].keys()]:
+        if pkgname in without_versions:
+            logging.verbose(apkbuild["pkgname"] + ": ignoring dependency on itself: " + pkgname)
+            ret.remove(without_versions[pkgname])
+    return ret
+
+
 def get_depends(context: Context, apkbuild: dict[str, Any]) -> list[str]:
     """
     Alpine's abuild always builds/installs the "depends" and "makedepends" of a package
@@ -85,13 +99,7 @@ def get_depends(context: Context, apkbuild: dict[str, Any]) -> list[str]:
         ret += apkbuild["checkdepends"]
     if not context.ignore_depends:
         ret += apkbuild["depends"]
-    ret = sorted(set(ret))
-
-    # Don't recurse forever when a package depends on itself (#948)
-    for pkgname in [apkbuild["pkgname"], *apkbuild["subpackages"].keys()]:
-        if pkgname in ret:
-            logging.verbose(apkbuild["pkgname"] + ": ignoring dependency on itself: " + pkgname)
-            ret.remove(pkgname)
+    ret = sorted(filter_depends(apkbuild, list(set(ret))))
 
     # FIXME: is this needed? is this sensible?
     return list(filter(lambda x: not x.startswith("!"), ret))
@@ -656,6 +664,8 @@ def packages(
         if src:
             depends_build.append("rsync")
 
+        depends_host = filter_depends(apkbuild, depends_host)
+        depends_build = filter_depends(apkbuild, depends_build)
         if hostchroot == buildchroot:
             pmb.chroot.apk.install(set(depends_host + depends_build), hostchroot, build=False)
         else:
