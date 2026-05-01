@@ -51,7 +51,7 @@ def read_signature_info(tar: tarfile.TarFile) -> tuple[str, str]:
         logging.debug(f"sigkey_path: {sigkey_path}")
         raise RuntimeError(f"Invalid signature key: {sigkey}")
 
-    return (sigfilename, sigkey_path)
+    return sigfilename, sigkey_path
 
 
 def extract_temp(tar: tarfile.TarFile, sigfilename: str) -> dict[str, dict]:

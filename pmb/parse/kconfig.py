@@ -38,8 +38,7 @@ def is_set_str(config: str, option: str, string: str) -> bool:
     match = re.search("^CONFIG_" + option + "=(.*)$", config, re.MULTILINE)
     if match:
         return string == match.group(1).strip('"')
-    else:
-        return False
+    return False
 
 
 def is_in_array(config: str, option: str, string: str) -> bool:
@@ -55,8 +54,7 @@ def is_in_array(config: str, option: str, string: str) -> bool:
     if match:
         values = match.group(1).split(",")
         return string in values
-    else:
-        return False
+    return False
 
 
 def check_option(

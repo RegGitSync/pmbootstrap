@@ -162,7 +162,7 @@ def parse_next_attribute(
     # Check for and cut off "attribute="
     rematch5 = revar5.match(lines[i])
     if not rematch5:
-        return (None, None, i)
+        return None, None, i
     attribute = rematch5.group(0)
     value = lines[i][len(attribute) : -1]
     attribute = rematch5.group(0).rstrip("=")
@@ -178,10 +178,10 @@ def parse_next_attribute(
     # Single line
     if not end_char:
         value = value.split("#")[0].rstrip()
-        return (attribute, value, i)
+        return attribute, value, i
     if end_char in value:
         value = value.split(end_char, 1)[0]
-        return (attribute, value, i)
+        return attribute, value, i
 
     # Parse lines until reaching end quote
     i += 1
@@ -190,7 +190,7 @@ def parse_next_attribute(
         value += " "
         if end_char in line:
             value += line.split(end_char, 1)[0].strip()
-            return (attribute, value.strip(), i)
+            return attribute, value.strip(), i
         value += line.strip()
         i += 1
 

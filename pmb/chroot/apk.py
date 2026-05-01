@@ -73,7 +73,7 @@ def packages_split_to_add_del(packages: Collection[str]) -> tuple[list[str], lis
         else:
             to_add.append(package)
 
-    return (to_add, to_del)
+    return to_add, to_del
 
 
 def packages_get_locally_built_apks(package_list: Collection[str], arch: Arch) -> list[Path]:

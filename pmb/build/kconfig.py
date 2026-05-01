@@ -337,10 +337,9 @@ def generate_config(pkgname: str, arch: Arch | None) -> None:
     multiple_architectures = "all" in apkbuild["arch"] or len(apkbuild["arch"]) > 1
     pmos_frag_name = f"pmos.{arch}.config" if multiple_architectures else "pmos.config"
 
-    generated_fragments: dict[str, str] = {}
+    generated_fragments: dict[str, str] = {pmos_frag_name: pmb.parse.kconfig.create_pmos_fragment(apkbuild, arch)}
 
     # The 'pmos fragment' is generated from kconfigcheck.toml
-    generated_fragments[pmos_frag_name] = pmb.parse.kconfig.create_pmos_fragment(apkbuild, arch)
 
     # The 'generic fragment' is generated from kconfig-generic.toml
     if "pmb:generic-kernel" in apkbuild["options"]:

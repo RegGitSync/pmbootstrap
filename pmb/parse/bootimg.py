@@ -90,7 +90,7 @@ def get_qcdt_exynos_platform_subtype(path: PathString) -> tuple[str, str] | tupl
     :returns: ( Type tuple with platform and subtype, like ("0x50a6", "0x217584da")
     """
     if not os.path.exists(path):
-        return (None, None)
+        return None, None
 
     with open(path, "rb") as f:
         header = f.read(24)
@@ -98,7 +98,7 @@ def get_qcdt_exynos_platform_subtype(path: PathString) -> tuple[str, str] | tupl
     platform = hex(int.from_bytes(header[16:20], "little"))
     subtype = hex(int.from_bytes(header[20:24], "little"))
 
-    return (platform, subtype)
+    return platform, subtype
 
 
 def bootimg(path: Path) -> Bootimg:

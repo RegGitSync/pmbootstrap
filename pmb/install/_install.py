@@ -55,7 +55,7 @@ def get_subpartitions_size(chroot: Chroot) -> tuple[int, int]:
     root = pmb.helpers.other.folder_size(chroot.path) / 1024
     root *= 1.20
     root += 50 + int(config.extra_space)
-    return (boot, round(root))
+    return boot, round(root)
 
 
 def get_nonfree_packages(device: str) -> list[str]:
@@ -599,8 +599,8 @@ def generate_binary_list(chroot: Chroot, step: int) -> list[tuple[str, int]]:
         binary_start = offset * step
         binary_end = binary_start + binary_size
         for start, end in binary_ranges.items():
-            if (binary_start >= start and binary_start < end) or (
-                binary_end > start and binary_end <= end
+            if (start <= binary_start < end) or (
+                    start < binary_end <= end
             ):
                 raise RuntimeError(
                     f"The firmware overlaps with at least one other firmware image: {binary}"

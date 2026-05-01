@@ -107,15 +107,9 @@ def urls(
                     )
                 continue
 
-            mirrordirs = []
-            if repo == "alpine":
-                # FIXME: This is a bit of a mess
-                mirrordirs = [f"{mirrordir_alpine}/main", f"{mirrordir_alpine}/community"]
-                if mirrordir_alpine == "edge":
-                    mirrordirs.append(f"{mirrordir_alpine}/testing")
-            else:
-                mirrordirs = [mirrordir_pmos]
-
+            mirrordirs = [f"{mirrordir_alpine}/main", f"{mirrordir_alpine}/community"] if repo == 'alpine' else [mirrordir_pmos]
+            if repo == 'alpine' and mirrordir_alpine == "edge":
+                mirrordirs.append(f"{mirrordir_alpine}/testing")
             for mirrordir in mirrordirs:
                 url = os.path.join(mirror, mirrordir)
                 if url not in ret:
@@ -270,5 +264,5 @@ def alpine_apkindex_path(repo: str = "main", arch: Arch | None = None) -> Path:
     # Find it on disk
     channel_cfg = pmb.config.pmaports.read_config_channel()
     repo_link = f"{get_context().config.mirrors['alpine']}{channel_cfg['mirrordir_alpine']}/{repo}"
-    cache_folder = get_context().config.work / (f"cache_apk_{arch}")
+    cache_folder = get_context().config.work / f"cache_apk_{arch}"
     return cache_folder / apkindex_hash(repo_link)
