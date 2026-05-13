@@ -75,7 +75,7 @@ def next_token(previous: Token, rest: str) -> tuple[Token, str]:
         or (next == Token.DIGIT and previous == Token.LETTER)
     ):
         next = Token.INVALID
-    return (next, rest)
+    return next, rest
 
 
 def parse_suffix(rest: str) -> tuple[str, int, bool]:
@@ -112,8 +112,8 @@ def parse_suffix(rest: str) -> tuple[str, int, bool]:
             value = i
             if name == "pre":
                 value = value - len(suffixes)
-            return (rest, value, False)
-    return (rest, 0, True)
+            return rest, value, False
+    return rest, 0, True
 
 
 def get_token(previous: Token, rest: str) -> tuple[Token, int, str]:
@@ -138,7 +138,7 @@ def get_token(previous: Token, rest: str) -> tuple[Token, int, str]:
 
     # Bail out if at the end
     if not len(rest):
-        return (Token.END, 0, rest)
+        return Token.END, 0, rest
 
     # Cut off leading zero digits
     if previous == Token.DIGIT_OR_ZERO and rest.startswith("0"):
@@ -172,7 +172,7 @@ def get_token(previous: Token, rest: str) -> tuple[Token, int, str]:
     elif next == Token.INVALID and not invalid_suffix:
         (next, rest) = next_token(previous, rest)
 
-    return (next, value, rest)
+    return next, value, rest
 
 
 def validate(version: str) -> bool:

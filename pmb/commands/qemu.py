@@ -268,7 +268,7 @@ def command_qemu(
     if qemu_audio:
         command += ["-audio", f"{qemu_audio},model=hda"]
 
-    return (command, env)
+    return command, env
 
 
 def resize_image(img_size_new: str, img_path: Path) -> None:

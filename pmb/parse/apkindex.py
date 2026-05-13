@@ -42,7 +42,6 @@ def _parse_next_block(path: Path, lines: list[str]) -> ApkindexBlock | None:
     # Parse until we hit an empty line or end of file
     ret: dict[str, Any] = {}
     required_found = 0  # Count the required keys we found
-    line = ""
     while len(lines):
         # We parse backwards for performance (pop(0) is super slow)
         line = lines.pop()

@@ -302,7 +302,7 @@ def foreground_pipe(
     # Return the return code and output (the output gets built as list of
     # output chunks and combined at the end, this is faster than extending the
     # combined string with each new chunk)
-    return (process.returncode, b"".join(output_buffer).decode("utf-8"))
+    return process.returncode, b"".join(output_buffer).decode("utf-8")
 
 
 def foreground_tui(

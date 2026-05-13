@@ -53,7 +53,7 @@ def properties(
     """
     for prefix in ["busybox-static", "gcc", "musl", "grub-efi"]:
         if pkgname.startswith(prefix):
-            return (prefix, folder or Path("cross"), False)
+            return prefix, folder or Path("cross"), False
 
     for prefix in ["device", "linux"]:
         if pkgname.startswith(prefix):
@@ -61,7 +61,7 @@ def properties(
                 folder = (
                     Path("device") / str(device_category) if device_category else Path("device")
                 )
-            return (prefix, folder, True)
+            return prefix, folder, True
 
     logging.info(
         "NOTE: aportgen is for generating postmarketOS specific aports, such as the cross-compiler "

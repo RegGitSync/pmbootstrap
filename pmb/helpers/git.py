@@ -129,7 +129,7 @@ def remote_to_name_and_clean_url(remote_line: str) -> tuple[str, str]:
     else:
         clean_url = url_part
 
-    return (remote_name, clean_url)
+    return remote_name, clean_url
 
 
 def get_upstream_remote(aports: Path) -> str:
@@ -272,8 +272,8 @@ def parse_channels_cfg(aports: Path) -> dict:
             ) from exception
 
     # Meta section
-    ret: dict[str, dict[str, str | dict[str, str]]] = {"channels": {}}
-    ret["meta"] = {"recommended": cfg.get("channels.cfg", "recommended")}
+    ret: dict[str, dict[str, str | dict[str, str]]] = {"channels": {},
+                                                       "meta": {"recommended": cfg.get("channels.cfg", "recommended")}}
 
     # Channels
     for channel in cfg.sections():

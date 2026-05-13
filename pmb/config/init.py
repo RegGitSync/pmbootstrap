@@ -146,7 +146,7 @@ def ask_for_work_path(default: Path | None) -> tuple[Path, bool]:
             # Create cache_git dir, so it is owned by the host system's user
             # (otherwise pmb.helpers.mount.bind would create it as root)
             work.joinpath("cache_git").mkdir(mode=0o700, parents=True, exist_ok=True)
-            return (work, exists)
+            return work, exists
         except OSError:
             logging.fatal(
                 "ERROR: Could not create this folder, or write inside it! Please try again."
@@ -644,7 +644,7 @@ def ask_for_device(context: Context, channel: str) -> tuple[str, bool, str]:
         break
 
     kernel = ask_for_device_kernel(context.config, device)
-    return (device, device_path is not None, kernel)
+    return device, device_path is not None, kernel
 
 
 def ask_for_additional_options(config: Config) -> None:
