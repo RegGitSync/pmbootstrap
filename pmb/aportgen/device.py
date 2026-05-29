@@ -297,7 +297,7 @@ def generate_apkbuild(
         depends += ["linux-CHANGEME"]
 
     if flash_method in ["fastboot", "heimdall-bootimg"]:
-        depends.append("mkbootimg")
+        depends.append("android-tools-mkbootimg")
     if flash_method == "0xffff":
         depends.append("uboot-tools")
 
