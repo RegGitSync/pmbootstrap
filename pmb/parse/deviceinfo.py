@@ -198,7 +198,6 @@ class Deviceinfo:
     flash_mtkclient_partition_vbmeta: str | None = ""
     flash_mtkclient_partition_dtbo: str | None = ""
     generate_legacy_uboot_initfs: str | None = ""
-    kernel_cmdline: str | None = ""
     generate_bootimg: str | None = ""
     header_version: int | None = None
     bootimg_qcdt: str | None = ""
