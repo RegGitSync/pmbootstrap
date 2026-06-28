@@ -111,7 +111,6 @@ def ask_for_bootimg() -> Bootimg | None:
 def generate_deviceinfo_fastboot_content(bootimg: Bootimg | None = None) -> str:
     if bootimg is None:
         bootimg = Bootimg(
-            cmdline="",
             bootimg_qcdt="false",
             bootimg_qcdt_type=None,
             bootimg_qcdt_exynos_platform=None,
@@ -130,7 +129,6 @@ def generate_deviceinfo_fastboot_content(bootimg: Bootimg | None = None) -> str:
         )
 
     content = f"""\
-        deviceinfo_kernel_cmdline="{bootimg["cmdline"]}"
         deviceinfo_generate_bootimg="true"
         deviceinfo_flash_pagesize="{bootimg["pagesize"]}"
         """
@@ -244,6 +242,25 @@ def generate_deviceinfo(
         handle.writelines(line.lstrip() + "\n" for line in content.rstrip().split("\n"))
 
 
+def generate_kernel_cmdline(bootimg: Bootimg | None = None) -> None:
+    split_cmdline = bootimg["cmdline"].replace(" ", "\n") if bootimg != None else ""
+    content = f"""\
+        # Remove this file if unnecessary (CHANGEME!)
+        # This file shall contain a list of cmdline options to pass to the
+        # kernel. There shall only be one cmdline option per-line. It is also
+        # possible to remove distro provided options by prefixing lines with
+        # '-' (for example, `-splash`).
+        {split_cmdline}
+        """
+
+    # Write to file
+    work = get_context().config.work
+    pmb.helpers.run.user(["mkdir", "-p", work / "aportgen"])
+    path = work / "aportgen/kernel-cmdline.conf"
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.writelines(line.lstrip() + "\n" for line in content.rstrip().split("\n"))
+
+
 def generate_modules_initfs() -> None:
     content = """\
     # Remove this file if unnecessary (CHANGEME!)
@@ -280,7 +297,7 @@ def generate_apkbuild(
         depends += ["linux-CHANGEME"]
 
     if flash_method in ["fastboot", "heimdall-bootimg"]:
-        depends.append("mkbootimg")
+        depends.append("android-tools-mkbootimg")
     if flash_method == "0xffff":
         depends.append("uboot-tools")
 
@@ -304,6 +321,7 @@ def generate_apkbuild(
         makedepends="devicepkg-dev"
         source="
             deviceinfo
+            kernel-cmdline.conf
             modules-initfs
         "
 
@@ -349,5 +367,6 @@ def generate(pkgname: str, device_category: pmb.helpers.devices.DeviceCategory) 
         flash_method,
         bootimg,
     )
+    generate_kernel_cmdline(bootimg)
     generate_modules_initfs()
     generate_apkbuild(pkgname, name, arch, flash_method, device_category)

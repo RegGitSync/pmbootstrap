@@ -8,7 +8,7 @@ from pmb.types import Bootimg
 
 # Test case name -> (input, expected substrings, !expected substrings)
 test_data: dict[str, tuple[Bootimg | None, list[str], list[str]]] = {
-    "none": (None, ['kernel_cmdline=""', 'flash_pagesize="2048"'], []),
+    "none": (None, ['flash_pagesize="2048"'], []),
     "header_v0": (
         Bootimg(
             cmdline="beep boop",
@@ -29,7 +29,6 @@ test_data: dict[str, tuple[Bootimg | None, list[str], list[str]]] = {
             mtk_label_ramdisk="",
         ),
         [
-            'kernel_cmdline="beep boop"',
             'flash_pagesize="2048"',
             'flash_offset_base="0x80000000"',
             'flash_offset_kernel="0x8000"',
@@ -57,7 +56,6 @@ test_data: dict[str, tuple[Bootimg | None, list[str], list[str]]] = {
             mtk_label_ramdisk="",
         ),
         [
-            'kernel_cmdline="console=ttyMSM0,115200n8"',
             'flash_pagesize="2048"',
             'append_dtb="false"',
             'flash_offset_dtb="0x101f00000"',
@@ -84,7 +82,6 @@ test_data: dict[str, tuple[Bootimg | None, list[str], list[str]]] = {
             mtk_label_ramdisk="",
         ),
         [
-            'kernel_cmdline="console=ttyMSM0,115200n8"',
             'flash_pagesize="4096"',
         ],
         [
@@ -111,7 +108,6 @@ test_data: dict[str, tuple[Bootimg | None, list[str], list[str]]] = {
             mtk_label_ramdisk="",
         ),
         [
-            'kernel_cmdline="console=ttySAC1,115200"',
             'bootimg_qcdt="true"',
             'bootimg_qcdt_type="exynos"',
         ],
@@ -140,7 +136,6 @@ test_data: dict[str, tuple[Bootimg | None, list[str], list[str]]] = {
             mtk_label_ramdisk="",
         ),
         [
-            'kernel_cmdline="console=ttySAC1,115200"',
             'bootimg_qcdt="true"',
             'bootimg_qcdt_type="exynos"',
             'bootimg_qcdt_exynos_platform="0x347e"',

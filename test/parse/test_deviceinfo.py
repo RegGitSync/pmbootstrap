@@ -50,8 +50,6 @@ deviceinfo_keys = [
     "flash_sparse",
     "flash_sparse_samsung_format",
     "flash_kernel_on_update",
-    "kernel_cmdline",
-    "kernel_cmdline_append",
     "bootimg_amazon_omap_header_size",
     "bootimg_blobpack",
     "bootimg_qcdt",
