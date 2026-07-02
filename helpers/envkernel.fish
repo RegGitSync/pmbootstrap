@@ -8,8 +8,8 @@ for arg in $argv
 		and not string match -q -- "--gcc" $arg
 		echo "usage: source envkernel.fish"
 		echo "optional arguments:"
-		echo "    --gcc4        Use GCC4 cross compiler"
-		echo "    --gcc6        Use GCC6 cross compiler"
+		echo "    --gcc4        Use GCC4 (QEMU)"
+		echo "    --gcc6        Use GCC6 (QEMU)"
 		echo "    --gcc         Use GCC cross compiler"
 		echo "    --help        Show this help message"
 		exit 1
