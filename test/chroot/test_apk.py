@@ -42,6 +42,7 @@ def apk_mocks(monkeypatch: MonkeyPatch) -> None:
                 provider_priority=None,
                 timestamp=None,
                 version="5.5-r0",
+                pkgdesc="package1",
             )
         if _package == "package2":
             return ApkindexBlock(
@@ -53,6 +54,7 @@ def apk_mocks(monkeypatch: MonkeyPatch) -> None:
                 provider_priority=None,
                 timestamp=None,
                 version="5.5-r0",
+                pkgdesc="package2",
             )
         if _package == "package3":
             return ApkindexBlock(
@@ -64,6 +66,7 @@ def apk_mocks(monkeypatch: MonkeyPatch) -> None:
                 provider_priority=None,
                 timestamp=None,
                 version="5.5-r0",
+                pkgdesc="package3",
             )
         # Test recursive dependency
         if _package == "package4":
@@ -76,6 +79,7 @@ def apk_mocks(monkeypatch: MonkeyPatch) -> None:
                 provider_priority=None,
                 timestamp=None,
                 version="5.5-r0",
+                pkgdesc="package4",
             )
 
         return None
