@@ -185,6 +185,30 @@ def handle_csum_failure(apkbuild: Apkbuild, chroot: Chroot) -> None:
         raise RuntimeError(f"Remote checksum mismatch for {apkbuild['pkgname']}")
 
 
+def get_kernel_build_arch(arch: Arch) -> str:
+    """Translates the abuild arch strings into the names that the kernel uses."""
+    if arch.value == "aarch64":
+        karch = "arm64"
+    elif arch.value == "armv7" or arch.value == "armhf":
+        karch = "arm"
+    elif arch.value == "loongarch64":
+        karch = "loongarch"
+    elif arch.value == "ppc64le":
+        karch = "powerpc"
+    elif arch.value == "riscv64":
+        karch = "riscv"
+    elif arch.value == "s390x":
+        karch = "s390"
+    elif arch.value == "x86":
+        karch = "i386"
+    elif arch.value == "x86_64":
+        karch = arch.value
+    else:
+        raise RuntimeError(f"Unknown arch for kernel build: {arch}")
+
+    return karch
+
+
 def run_abuild(
     context: Context,
     apkbuild: Apkbuild,
@@ -250,7 +274,11 @@ def run_abuild(
     )
 
     # Environment variables
-    env: Env = {"SUDO_APK": "abuild-apk --no-progress", "PMB_CROSS": str(cross)}
+    env: Env = {
+        "SUDO_APK": "abuild-apk --no-progress",
+        "PMB_CROSS": str(cross),
+        "KARCH": get_kernel_build_arch(arch),
+    }
     if cross == CrossCompile.CROSS_NATIVE:
         hostspec = arch.alpine_triple()
         env["CROSS_COMPILE"] = hostspec + "-"
