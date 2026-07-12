@@ -251,20 +251,6 @@ def setup_login_chpasswd_user_from_arg(user: str, password: str, chroot: Chroot)
     os.unlink(path_outside)
 
 
-def is_root_locked(chroot: Chroot) -> bool:
-    """
-    Figure out from /etc/shadow if root is already locked. The output of this
-    is stored in the log, so use grep to only log the line for root, not the
-    line for the user which contains a hash of the user's password.
-
-    :param suffix: either rootfs_{args.device} or installer_{args.device}
-    """
-    shadow_root = pmb.chroot.root(
-        ["grep", "^root:!:", "/etc/shadow"], chroot, output_return=True, check=False
-    )
-    return shadow_root.startswith("root:!:")
-
-
 def setup_login(config: Config, chroot: Chroot, password: str) -> None:
     """
     Loop until the password for user has been set successfully, and disable
@@ -277,12 +263,8 @@ def setup_login(config: Config, chroot: Chroot, password: str) -> None:
     logging.info(f" *** SET LOGIN PASSWORD FOR: '{config.user}' ***")
     setup_login_chpasswd_user_from_arg(config.user, password, chroot)
 
-    # Disable root login
-    if is_root_locked(chroot):
-        logging.debug(f"({chroot}) root is already locked")
-    else:
-        logging.debug(f"({chroot}) locking root")
-        pmb.chroot.root(["passwd", "-l", "root"], chroot)
+    # Copy user password for root
+    setup_login_chpasswd_user_from_arg("root", password, chroot)
 
 
 def copy_ssh_keys(config: Config) -> None:
