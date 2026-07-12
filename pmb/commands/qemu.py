@@ -64,11 +64,9 @@ def which_qemu(arch: Arch) -> str:
 def command_qemu(
     config: Config,
     arch: Arch,
-    cmdline_arg: str,
     qemu_audio: str | None,
     qemu_cpu: str | None,
     qemu_display: str,
-    qemu_video: str,
     memory_size: int,
     port_ssh: int,
     use_host_qemu: bool,
@@ -309,7 +307,7 @@ def resize_image(img_size_new: str, img_path: Path) -> None:
         raise RuntimeError(f"IMAGE_SIZE must be {img_size_str} or greater")
 
 
-def _sigterm_handler(number: int, stack_frame: FrameType | None) -> None:
+def _sigterm_handler(_number: int, _stack_frame: FrameType | None) -> None:
     raise RuntimeError(
         "pmbootstrap was terminated by another process, and killed the QEMU VM it was running."
     )
@@ -369,11 +367,9 @@ def install_efi_image(arch: Arch) -> None:
 
 
 def qemu(
-    cmdline_arg: str,
     qemu_audio: str | None,
     qemu_cpu: str | None,
     qemu_display: str,
-    qemu_video: str,
     memory_size: int,
     image_size: str | None,
     second_storage: str | None,
@@ -411,11 +407,9 @@ def qemu(
     qemu, env = command_qemu(
         config,
         arch,
-        cmdline_arg,
         qemu_audio,
         qemu_cpu,
         qemu_display,
-        qemu_video,
         memory_size,
         port_ssh,
         use_host_qemu,

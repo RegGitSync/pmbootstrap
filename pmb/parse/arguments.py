@@ -47,10 +47,10 @@ def toggle_other_boolean_flags(
 
         def __call__(
             self,
-            parser: argparse.ArgumentParser,
+            _parser: argparse.ArgumentParser,
             namespace: argparse.Namespace,
-            values: str | Sequence[Any] | None,
-            option_string: str | None = None,
+            _values: str | Sequence[Any] | None,
+            _option_string: str | None = None,
         ) -> None:
             for destination in other_destinations:
                 setattr(namespace, destination, value)
@@ -419,7 +419,6 @@ def arguments_initfs(subparser: argparse._SubParsersAction) -> argparse.Argument
 
 def arguments_qemu(subparser: argparse._SubParsersAction) -> argparse.ArgumentParser:
     ret = subparser.add_parser("qemu")
-    ret.add_argument("--cmdline", help="override kernel commandline")
     ret.add_argument("--image-size", help="set rootfs size (e.g. 2048M or 2G)")
     ret.add_argument(
         "--second-storage",
@@ -478,12 +477,6 @@ def arguments_qemu(subparser: argparse._SubParsersAction) -> argparse.ArgumentPa
         default=True,
         action="store_false",
         help="Avoid using GL for accelerating graphics in QEMU  (use software rasterizer, slow!)",
-    )
-    ret.add_argument(
-        "--video",
-        dest="qemu_video",
-        default="1024x768@60",
-        help="Video resolution for QEMU (WidthxHeight@RefreshRate). Default is 1024x768@60.",
     )
 
     ret.add_argument(
@@ -713,9 +706,9 @@ def arguments_ci(subparser: argparse._SubParsersAction) -> argparse.ArgumentPars
 
 def package_completer(
     prefix: str,
-    action: str,
-    parser: argparse.ArgumentParser | None = None,
-    parsed_args: list[str] | None = None,
+    _action: str,
+    _parser: argparse.ArgumentParser | None = None,
+    _parsed_args: list[str] | None = None,
 ) -> set[str]:
     return {package for package in pmb.helpers.pmaports.get_list() if package.startswith(prefix)}
 
