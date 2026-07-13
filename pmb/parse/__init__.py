@@ -13,5 +13,9 @@ from pmb.parse.arguments import (
 from pmb.parse.binfmt_info import binfmt_info as binfmt_info
 from pmb.parse.bootimg import bootimg as bootimg
 from pmb.parse.cpuinfo import arm_big_little_first_group_ncpus as arm_big_little_first_group_ncpus
-from pmb.parse.deviceinfo import deviceinfo as deviceinfo
+from pmb.parse.deviceinfo import (
+    deviceinfo as deviceinfo,
+    deviceinfo_schema as deviceinfo_schema,
+    deviceinfo_schema_default_boot_filesystem as deviceinfo_schema_default_boot_filesystem,
+)
 from pmb.parse.kconfig import check as check
