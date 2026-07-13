@@ -219,9 +219,7 @@ def set_user(config: Config) -> None:
 
     pmaports_cfg = pmb.config.pmaports.read_config()
     groups = []
-    groups += pmaports_cfg.get(
-        "install_user_groups", "audio,input,netdev,plugdev,video,wheel"
-    ).split(",")
+    groups += pmaports_cfg.get("install_user_groups", "audio,netdev,plugdev,video,wheel").split(",")
     groups += pmb.install.ui.get_groups(config)
 
     for group in groups:
