@@ -182,7 +182,10 @@ def _make(
 
     # Update the aport (config and checksum)
     logging.info("Copy kernel config back to pmaports dir")
-    config = f"config-{apkbuild['_flavor']}.{arch}"
+    config = f"config-{apkbuild['pkgname'].lstrip('linux-')}.{arch}"
+    # Backwards compat with old _flavor logic
+    if apkbuild["_flavor"]:
+        config = f"config-{apkbuild['_flavor']}.{arch}"
     target = aport / config
     pmb.helpers.run.user(["cp", source, target])
     pmb.build.checksum.update(pkgname)
@@ -264,7 +267,10 @@ def edit_config(
 
     if fragment:
         aport = pmb.helpers.pmaports.find(pkgname)
-        config_name = f"config-{apkbuild['_flavor']}.{arch}"
+        config_name = f"config-{apkbuild['pkgname'].lstrip('linux-')}.{arch}"
+        # Backwards compat with old _flavor logic
+        if apkbuild["_flavor"]:
+            config_name = f"config-{apkbuild['_flavor']}.{arch}"
         full_config = aport / config_name
 
         if not full_config.exists():
@@ -411,7 +417,12 @@ def generate_config(pkgname: str, arch: Arch | None) -> None:
     if not pmb.parse.kconfig.check(pkgname, details=True):
         raise RuntimeError("Generated kernel config does not pass all checks")
 
-    final_config = aport.joinpath(f"config-{apkbuild['_flavor']}.{arch}").read_text()
+    final_config = aport.joinpath(
+        f"config-{apkbuild['pkgname'].lstrip('linux-')}.{arch}"
+    ).read_text()
+    # Backwards compat with old _flavor logic
+    if apkbuild["_flavor"]:
+        final_config = aport.joinpath(f"config-{apkbuild['_flavor']}.{arch}").read_text()
 
     validation_failed = False
     for fragment_name, options in fragment_options.items():
