@@ -89,9 +89,6 @@ def init(chroot: Chroot) -> None:
     /etc/apk/repositories. If /bin/sh is missing, create the chroot from
     scratch.
     """
-    # When already initialized: just prepare the chroot
-    arch = chroot.arch
-
     # If the channel is wrong and the user has auto_zap_misconfigured_chroots
     # enabled, zap the chroot and reinitialize it
     if chroot.exists():
@@ -102,6 +99,7 @@ def init(chroot: Chroot) -> None:
 
     pmb.chroot.mount(chroot)
     mark_in_chroot(chroot)
+    # When already initialized: just prepare the chroot
     if chroot.exists():
         copy_resolv_conf(chroot)
         pmb.helpers.apk.update_repository_list(chroot.path)
@@ -120,19 +118,18 @@ def init(chroot: Chroot) -> None:
 
     pmb.config.workdir.chroot_save_init(chroot)
 
-    pmb.helpers.repo.update(arch)
+    pmb.helpers.repo.update(chroot.arch)
     # Create the /usr-merge-related symlinks, which needs to be done manually
-    if pmb.config.pmaports.read_config().get("supported_usr_merge", False):
-        pmb.helpers.run.root(
-            [
-                "mkdir",
-                "-p",
-                f"{chroot.path}/usr/bin",
-                f"{chroot.path}/usr/sbin",
-                f"{chroot.path}/usr/lib",
-            ]
-        )
-        pmb.helpers.run.root(["ln", "-s", "usr/bin", "usr/sbin", "usr/lib", f"{chroot.path}/"])
+    pmb.helpers.run.root(
+        [
+            "mkdir",
+            "-p",
+            f"{chroot.path}/usr/bin",
+            f"{chroot.path}/usr/sbin",
+            f"{chroot.path}/usr/lib",
+        ]
+    )
+    pmb.helpers.run.root(["ln", "-s", "usr/bin", "usr/sbin", "usr/lib", f"{chroot.path}/"])
     # Create the bin-merge-related symlinks, which are done manually to be
     # consistent with the /usr-merge
     if pmb.config.pmaports.read_config().get("supported_bin_merge", False):
