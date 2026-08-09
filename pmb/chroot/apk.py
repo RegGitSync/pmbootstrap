@@ -232,7 +232,7 @@ def install(
     install_run_apk(to_add, to_add_local, to_del, chroot)
 
 
-def installed(suffix: Chroot = Chroot.native()) -> dict[str, pmb.core.apkindex_block.ApkindexBlock]:
+def installed(suffix: Chroot = Chroot.native()) -> dict[str, pmb.core.apk_package.ApkPackage]:
     """
     Read the list of installed packages (which has almost the same format, as
     an APKINDEX, but with more keys).
@@ -242,4 +242,8 @@ def installed(suffix: Chroot = Chroot.native()) -> dict[str, pmb.core.apkindex_b
 
     """
     path = suffix / "lib/apk/db/installed"
-    return {block.pkgname: block for block in pmb.parse.apkindex.parse_blocks(path)}
+    try:
+        return {block.pkgname: block for block in pmb.parse.apkindex.parse_blocks(path)}
+    except FileNotFoundError:
+        logging.verbose(f"NOTE: installed db file does not exist for this architecture {path}")
+        return {}

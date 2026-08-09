@@ -4,10 +4,10 @@ pmb.core package
 Submodules
 ----------
 
-pmb.core.apkindex_block module
+pmb.core.apk_package module
 ------------------------------
 
-.. automodule:: pmb.core.apkindex_block
+.. automodule:: pmb.core.apk_package
    :members:
    :undoc-members:
    :show-inheritance:
@@ -48,14 +48,6 @@ pmb.core.dps module
 -------------------
 
 .. automodule:: pmb.core.dps
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-pmb.core.package_metadata module
---------------------------------
-
-.. automodule:: pmb.core.package_metadata
    :members:
    :undoc-members:
    :show-inheritance:
