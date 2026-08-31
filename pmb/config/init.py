@@ -347,7 +347,7 @@ def ask_for_timezone() -> str:
     return "GMT"
 
 
-def ask_for_provider_select(apkbuild: dict[str, Any], providers_cfg: dict[str, str]) -> None:
+def ask_for_provider_select(apkbuild: Apkbuild, providers_cfg: dict[str, str]) -> None:
     """
     Ask for selectable providers that are specified using "_pmb_select" in a APKBUILD.
 
@@ -939,16 +939,16 @@ def frontend(args: PmbArgs) -> None:
     # Work folder (needs to be first, so we can create chroots early)
     config = get_context().config
 
-    using_default_pmaports = config.aports[-1].is_relative_to(config.work)
+    using_default_pmaports = config.aports.is_relative_to(config.work)
 
     config.work, work_exists = ask_for_work_path(config.work)
 
     # If the work dir changed then we need to update the pmaports path
     # to be relative to the new workdir
     if using_default_pmaports:
-        config.aports = [config.work / "cache_git/pmaports"]
+        config.aports = config.work / "cache_git/pmaports"
 
-    config.aports[-1] = ask_for_pmaports_path(config.aports[-1])
+    config.aports = ask_for_pmaports_path(config.aports)
 
     # Update args and save config (so chroots and 'pmbootstrap log' work)
     # pmb.helpers.args.update_work(args, config.work)
