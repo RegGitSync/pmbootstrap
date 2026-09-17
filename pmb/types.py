@@ -7,8 +7,9 @@ import enum
 import subprocess
 from argparse import Namespace
 from pathlib import Path
-from typing import Any, Literal, TypedDict
+from typing import Literal, TypedDict
 
+from pmb.core.apkindex import Apkindex
 from pmb.core.arch import Arch
 from pmb.core.chroot import Chroot
 
@@ -140,7 +141,6 @@ RunOutputType = RunOutputTypeDefault | RunOutputTypePopen
 RunReturnType = str | int | subprocess.Popen[bytes]
 PathString = Path | str
 Env = dict[str, PathString]
-Apkbuild = dict[str, Any]
 ActionKConfig = Literal["check", "edit", "migrate", "generate"]
 
 # These types are not definitive / API, they exist to describe the current
@@ -189,7 +189,7 @@ class PmbArgs(Namespace):
     all_stable: bool
     allow_untrusted: bool
     android_recovery_zip: bool
-    apkindex_path: Path
+    apkindex_path: Apkindex
     aports: list[Path] | None
     arch: Arch | None
     as_root: bool
