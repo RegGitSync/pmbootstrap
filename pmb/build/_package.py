@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import datetime
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TypedDict
 
 import pmb.build
 import pmb.build.autodetect
@@ -204,7 +204,8 @@ def get_apkbuild(pkgname: str) -> tuple[Path | None, Apkbuild | None]:
     return None, None
 
 
-class BuildQueueItem(TypedDict):
+@dataclass
+class BuildQueueItem:
     name: str
     arch: Arch  # Arch to build for
     aports: str
@@ -220,7 +221,7 @@ class BuildQueueItem(TypedDict):
 def has_cyclical_dependency(
     unmet_deps: dict[str, list[str]], item: BuildQueueItem, dep: str
 ) -> bool:
-    pkgnames = [item["name"], *item["apkbuild"]["subpackages"].keys()]
+    pkgnames = [item.name, *item.apkbuild["subpackages"].keys()]
 
     return any(pkgname in unmet_deps.get(dep, []) for pkgname in pkgnames)
 
@@ -235,70 +236,70 @@ def prioritise_build_queue(disarray: list[BuildQueueItem]) -> list[BuildQueueIte
     # the build_packages array being in the correct order!
     for pkgname in pmb.config.build_packages:
         for item in disarray:
-            if item["name"] == pkgname:
+            if item.name == pkgname:
                 queue.append(item)
                 disarray.remove(item)
                 break
 
     # list of packages in pmaports
-    all_pkgnames = []
+    all_pkgnames = set()
     for item in disarray:
-        all_pkgnames.append(item["name"])
-        all_pkgnames += item["apkbuild"]["subpackages"].keys()
+        all_pkgnames.add(item.name)
+        all_pkgnames.update(item.apkbuild["subpackages"].keys())
 
     def queue_item(item: BuildQueueItem) -> None:
         queue.append(item)
         disarray.remove(item)
-        all_pkgnames.remove(item["name"])
-        for subpkg in item["apkbuild"]["subpackages"]:
+        all_pkgnames.remove(item.name)
+        for subpkg in item.apkbuild["subpackages"]:
             all_pkgnames.remove(subpkg)
 
-        unmet_deps.pop(item["name"], None)
+        unmet_deps.pop(item.name, None)
 
     stuck = False
     while disarray and not stuck:
         stuck = True
         for item in disarray:
-            if not item["depends"]:
+            if not item.depends:
                 queue_item(item)
                 stuck = False
                 break
 
             # If a dependency hasn't been queued yet, skip until it has been
             missing_deps = False
-            for dep in item["depends"]:
+            for dep in item.depends:
                 # This might be a subpkgname, replace with the main pkgname
                 # (e.g."linux-pam-dev" -> "linux-pam")
-                dep_data = pmb.helpers.package.get(dep, item["arch"], must_exist=False)
+                dep_data = pmb.helpers.package.get(dep, item.arch, must_exist=False)
                 if not dep_data:
-                    raise NonBugError(f"{item['name']}: dependency not found: {dep}")
+                    raise NonBugError(f"{item.name}: dependency not found: {dep}")
                 dep = dep_data.pkgname
 
                 # If the dependency is a subpackage we can safely ignore it
-                if dep in item["apkbuild"]["subpackages"]:
+                if dep in item.apkbuild["subpackages"]:
                     continue
 
                 if dep in all_pkgnames and dep_data.from_pmaports:
-                    unmet_deps.setdefault(item["name"], []).append(dep)
+                    unmet_deps.setdefault(item.name, []).append(dep)
                     missing_deps = True
 
                     if has_cyclical_dependency(unmet_deps, item, dep):
                         # If a binary package exists for item, we can queue it
                         # safely and dep will be queued on a future iteration
-                        if item["has_binary"]:
+                        if item.has_binary:
                             logging.warning(
-                                f"WARNING: cyclical build dependency: building {item['name']} with binary package of {dep}"
+                                f"WARNING: cyclical build dependency: building {item.name} with binary package of {dep}"
                             )
                             queue_item(item)
                             stuck = False
                             break
                         else:
                             logging.warning(
-                                f"WARNING: cyclical build dependency: can't build {item['name']}, no binary package for {dep}"
+                                f"WARNING: cyclical build dependency: can't build {item.name}, no binary package for {dep}"
                             )
                     else:
                         logging.debug(
-                            f"{item['name']}: missing dependency {dep}, trying to queue other packages first"
+                            f"{item.name}: missing dependency {dep}, trying to queue other packages first"
                         )
 
             if missing_deps:
@@ -323,7 +324,6 @@ def process_package(
     queue_build: Callable,
     pkgname: str,
     arch: Arch | None,
-    fallback_arch: Arch,
     force: bool,
     from_src: bool,
 ) -> list[str]:
@@ -334,7 +334,7 @@ def process_package(
         # We allow this function to be called for packages that aren't in pmaports
         # and just do nothing in this case. However this can be quite confusing
         # when building an Alpine package with --src since we'll just do nothing
-        if pmb.parse.apkindex.providers(pkgname, fallback_arch, False):
+        if pmb.parse.apkindex.package(pkgname, arch or Arch.native(), False):
             if from_src:
                 raise NonBugError(
                     f"Package {pkgname} is not in pmaports, but exists in Alpine."
@@ -424,7 +424,7 @@ def packages(
     Build a package and its dependencies with Alpine Linux' abuild.
 
     :param pkgname: package name to be built, as specified in the APKBUILD
-    :param arch: architecture we're building for (default: native)
+    :param arch: architecture we're building for (default: autodetected)
     :param force: always build, even if not necessary
     :param strict: avoid building with irrelevant dependencies installed by
                    letting abuild install and uninstall all dependencies.
@@ -455,14 +455,14 @@ def packages(
     ) -> list[str]:
         # Skip if already queued
         name = apkbuild["pkgname"]
-        if any(item["name"] == name for item in build_queue):
+        if any(item.name == name for item in build_queue):
             return []
 
         pkg_arch = pmb.build.autodetect.arch(apkbuild) if arch is None else arch
         cross = cross or pmb.build.autodetect.crosscompile(apkbuild, pkg_arch)
         pkgver = get_pkgver(apkbuild["pkgver"], src is None)
         channel = pmb.config.pmaports.read_config(aports)["channel"]
-        index_data = pmb.parse.apkindex.package(name, arch, False)
+        index_data = pmb.parse.apkindex.package(name, pkg_arch, False)
         # Make sure we aren't building a package that will never be used! This can happen if
         # building with --src with an outdated pmaports checkout. Unless --force is used
         # in which case we assume it was intentional.
@@ -486,20 +486,18 @@ def packages(
                     f" binary repo ({context.config.work / 'packages' / channel / pkg_arch})."
                 )
         build_queue.append(
-            {
-                "name": name,
-                "arch": pkg_arch,
-                "aports": aports.name,  # the pmaports source repo (e.g. "systemd")
-                "apkbuild": apkbuild,
-                "has_binary": bool(index_data),
-                "pkgver": pkgver,
-                "output_path": output_path(
-                    pkg_arch, apkbuild["pkgname"], pkgver, apkbuild["pkgrel"]
-                ),
-                "channel": channel,
-                "depends": depends,
-                "cross": cross,
-            }
+            BuildQueueItem(
+                name=name,
+                arch=pkg_arch,
+                aports=aports.name,  # the pmaports source repo (e.g. "systemd")
+                apkbuild=apkbuild,
+                has_binary=bool(index_data),
+                pkgver=pkgver,
+                output_path=output_path(pkg_arch, apkbuild["pkgname"], pkgver, apkbuild["pkgrel"]),
+                channel=channel,
+                depends=depends,
+                cross=cross,
+            )
         )
 
         # If we just queued a package that was request to be built explicitly then
@@ -514,24 +512,15 @@ def packages(
 
     logging.debug(f"Attempting to build: {', '.join(pkgnames)}")
 
-    # We sorta-kind maybe supported building packages for multiple architectures in
-    # a single called to packages(). We need to do a check to make sure that the user
-    # didn't specify a package that doesn't exist, and we can't just check the source repo
-    # since we might get called with some perhaps bogus packages that do exist in the binary
-    # repo but not in the source one, but we need to error if we get a package that doesn't
-    # exist anywhere, as something is clearly wrong for that to happen.
-    # The problem is the APKINDEX parsing code doesn't have a way to check all architectures
-    # so we need this hack.
-    fallback_arch = arch if arch is not None else pmb.build.autodetect.arch(pkgnames[0])
     # Get existing binary package indexes
-    pmb.helpers.repo.update(fallback_arch)
+    pmb.helpers.repo.update(arch)
 
     # Process the packages we've been asked to build, queuing up any
     # dependencies that need building as well as the package itself
     all_dependencies: list[str] = []
     for pkgname in pkgnames:
         all_dependencies += process_package(
-            context, queue_build, pkgname, arch, fallback_arch, force, src is not None
+            context, queue_build, pkgname, arch, force, src is not None
         )
 
     # If any of our common build packages need to be built and are missing, then add them
@@ -544,7 +533,9 @@ def packages(
                 aport, apkbuild = get_apkbuild(pkgname)
                 if not aport or not apkbuild:
                     continue
-                bstatus = pmb.build.get_status(arch, apkbuild)
+                bstatus = pmb.build.get_status(
+                    arch or pmb.build.autodetect.arch(apkbuild), apkbuild
+                )
                 if bstatus.necessary():
                     if strict:
                         raise RuntimeError(
@@ -562,7 +553,7 @@ def packages(
     qlen = len(build_queue)
     logging.info(f"Building @BLUE@{qlen}@END@ package{'s' if qlen > 1 else ''}")
     for item in build_queue:
-        logging.info(f"   @BLUE@*@END@ {item['channel']}/{item['name']}")
+        logging.info(f"   @BLUE@*@END@ {item.channel}/{item.name}")
 
     if len(build_queue) > 1:
         if src:
@@ -584,17 +575,17 @@ def packages(
     total_pkgs = len(build_queue)
     for count, pkg in enumerate(build_queue, 1):
         prev_cross = cross
-        cross = pkg["cross"]
-        pkg_arch = pkg["arch"]
+        cross = pkg.cross
+        pkg_arch = pkg.arch
         hostchroot = cross.host_chroot(pkg_arch)
         buildchroot = cross.build_chroot(pkg_arch)
-        apkbuild = pkg["apkbuild"]
+        apkbuild = pkg.apkbuild
 
-        channel = pkg["channel"]
-        output = pkg["output_path"]
+        channel = pkg.channel
+        output = pkg.output_path
         if not log_callback:
             logging.info(
-                f"@YELLOW@=> ({count}/{total_pkgs})@END@ @BLUE@{channel}/{pkg['name']}@END@: Installing dependencies"
+                f"@YELLOW@=> ({count}/{total_pkgs})@END@ @BLUE@{channel}/{pkg.name}@END@: Installing dependencies"
             )
         else:
             log_callback(pkg)
@@ -604,7 +595,7 @@ def packages(
         # APKBUILDs rather than trying to hack things in here
         pkg_depends = list(
             {
-                *pkg["depends"],
+                *pkg.depends,
                 *apkbuild.get("makedepends", []),
                 *apkbuild.get("makedepends_build", []),
                 *apkbuild.get("makedepends_host", []),
@@ -668,7 +659,7 @@ def packages(
                 pmb.chroot.apk.install(depends_build, buildchroot, build=False)
 
         # Build and finish up
-        msg = f"@YELLOW@=>@END@ @BLUE@{channel}/{pkg['name']}@END@: Building package"
+        msg = f"@YELLOW@=>@END@ @BLUE@{channel}/{pkg.name}@END@: Building package"
         if cross != CrossCompile.UNNECESSARY:
             msg += f" (cross compiling: {cross})"
         logging.info(msg)
@@ -677,7 +668,7 @@ def packages(
             run_abuild(
                 context,
                 apkbuild,
-                pkg["pkgver"],
+                pkg.pkgver,
                 channel,
                 pkg_arch,
                 cross,
@@ -688,7 +679,7 @@ def packages(
             )
         except CommandFailedError as exception:
             raise BuildFailedError(f"Couldn't build {output}!") from exception
-        finish(pkg["apkbuild"], channel, pkg_arch, output, buildchroot, strict)
+        finish(pkg.apkbuild, channel, pkg_arch, output, buildchroot, strict)
 
     # Clear package cache for the next run
     _package_cache = {}

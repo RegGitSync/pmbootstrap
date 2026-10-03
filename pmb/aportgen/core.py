@@ -177,6 +177,7 @@ def get_upstream_aport(pkgname: str, arch: Arch | None = None, retain_branch: bo
     :returns: absolute path on disk where the Alpine aport is checked out
               example: /opt/pmbootstrap_work/cache_git/aports/upstream/main/gcc
     """
+    arch = arch or Arch.native()
     # APKBUILD
     pmb.helpers.git.clone("aports_upstream")
     aports_upstream_path = get_context().config.work / "cache_git/aports_upstream"
@@ -219,7 +220,7 @@ def get_upstream_aport(pkgname: str, arch: Arch | None = None, retain_branch: bo
     # Update or create APKINDEX for relevant arch so we know it exists and is recent.
     pmb.helpers.repo.update(arch)
     index_path = pmb.helpers.repo.alpine_apkindex(repo, arch)
-    package = pmb.parse.apkindex.package(pkgname, indexes=[index_path], arch=arch)
+    package = pmb.parse.apkindex.package(pkgname, arch, indexes=[index_path])
 
     # Compare version (return when equal)
     compare = pmb.parse.version.compare(apkbuild_version, package.version)

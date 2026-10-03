@@ -25,7 +25,7 @@ from pmb.helpers.exceptions import NonBugError
 from pmb.meta import Cache
 
 
-def apkindex_hash(url: str, length: int = 8) -> Path:
+def apkrepo_hash(url: str, length: int = 8) -> str:
     r"""
     Generate the hash that APK adds to the APKINDEX and apk packages in its apk cache folder.
 
@@ -50,7 +50,7 @@ def apkindex_hash(url: str, length: int = 8) -> Path:
         ret += xd[(binary[i] >> 4) & 0xF]
         ret += xd[binary[i] & 0xF]
 
-    return Path(f"APKINDEX.{ret}.tar.gz")
+    return f"APKINDEX.{ret}.tar.gz"
 
 
 # FIXME: make config.mirrors a normal dict
@@ -127,19 +127,16 @@ def get_repos_from_config(
 
 
 def apkindex_files(
-    arch: Arch | None = None, user_repository: bool = True, exclude_mirrors: list[str] = []
+    arch: Arch, user_repository: bool = True, exclude_mirrors: list[str] = []
 ) -> list[Apkindex]:
     """
     Get a list of outside paths to all resolved APKINDEX.tar.gz files for a specific arch.
 
-    :param arch: defaults to native
+    :param arch: the Arch
     :param user_repository: add path to index of locally built packages
     :param exclude_mirrors: list of mirrors to exclude (e.g. ["alpine", "pmaports"])
     :returns: list of absolute APKINDEX.tar.gz file paths
     """
-    if not arch:
-        arch = Arch.native()
-
     ret: list[Apkindex] = []
     # Local user repository (for packages compiled with pmbootstrap)
     if user_repository:
@@ -152,19 +149,18 @@ def apkindex_files(
     ret.extend(
         Apkindex(file)
         for url in get_repos_from_config(None, exclude_mirrors)
-        if (file := get_context().config.work / f"cache_apk_{arch}" / apkindex_hash(url)).exists()
+        if (file := get_context().config.work / f"cache_apk_{arch}" / apkrepo_hash(url)).exists()
     )
 
     return ret
 
 
 @Cache("arch", force=False)
-def update(arch: Arch | None = None, force: bool = False, existing_only: bool = False) -> bool:
+def update(arch: Arch, force: bool = False, existing_only: bool = False) -> bool:
     """
     Download the APKINDEX files for all URLs depending on the architectures.
 
-    :param arch: * one Alpine architecture name ("x86_64", "armhf", ...)
-                 * None for all architectures
+    :param arch: one Alpine architecture name ("x86_64", "armhf", ...)
     :param force: even update when the APKINDEX file is fairly recent
     :param existing_only: only update the APKINDEX files that already exist,
                           this is used by "pmbootstrap update"
@@ -178,57 +174,45 @@ def update(arch: Arch | None = None, force: bool = False, existing_only: bool = 
 
     # Architectures and retention time
     supported_binary = Arch.supported_binary()
-    architectures = [arch] if arch else supported_binary
     retention_hours = pmb.config.apkindex_retention_time
     retention_seconds = retention_hours * 3600
 
     # Find outdated APKINDEX files. Formats:
     # outdated: {URL: apkindex, ... }
-    # outdated_arches: ["armhf", "x86_64", ... ]
     outdated = {}
-    outdated_arches: list[Arch] = []
     for url in get_repos_from_config(None):
-        for architecture in architectures:
-            # APKINDEX file name from the URL
-            url_full = f"{url}/{architecture}/APKINDEX.tar.gz"
-            cache_apk_outside = get_context().config.work / f"cache_apk_{architecture}"
-            apkindex = cache_apk_outside / f"{apkindex_hash(url)}"
+        # APKINDEX file name from the URL
+        remote_index = f"{url}/{arch}/APKINDEX.tar.gz"
+        cache_apk_outside = get_context().config.work / f"cache_apk_{arch}"
+        apkindex = Apkindex(cache_apk_outside, apkrepo_hash(url))
 
-            # Find update reason, possibly skip non-existing or known 404 files
-            reason = None
-            if not os.path.exists(apkindex):
-                if existing_only:
-                    continue
-                reason = "file does not exist yet"
-            elif force:
-                reason = "forced update"
-            elif pmb.helpers.file.is_older_than(apkindex, retention_seconds):
-                reason = "older than " + str(retention_hours) + "h"
-            if not reason:
+        # Find update reason, possibly skip non-existing or known 404 files
+        reason = None
+        if not apkindex.exists():
+            if existing_only:
                 continue
+            reason = "file does not exist yet"
+        elif force:
+            reason = "forced update"
+        elif pmb.helpers.file.is_older_than(apkindex, retention_seconds):
+            reason = "older than " + str(retention_hours) + "h"
+        if not reason:
+            continue
 
-            # Update outdated and outdated_arches
-            logging.debug("APKINDEX outdated (" + reason + "): " + url_full)
-            outdated[url_full] = apkindex
-            if architecture not in outdated_arches:
-                outdated_arches.append(architecture)
+        # Update outdated and outdated_arches
+        logging.debug("APKINDEX outdated (%s): %s", reason, remote_index)
+        outdated[remote_index] = apkindex
 
     # Bail out or show log message
     if not len(outdated):
         return False
-    logging.info(
-        "Update package index for "
-        + ", ".join([str(a) for a in outdated_arches])
-        + " ("
-        + str(len(outdated))
-        + " file(s))"
-    )
+    logging.info(f"Update package index for {arch} ({len(outdated)} file(s))")
 
     # Download and move to right location
     missing_ignored = False
-    for i, (url, target) in enumerate(outdated.items()):
+    for i, (remote_index, target) in enumerate(outdated.items()):
         pmb.helpers.cli.progress_print(i / len(outdated))
-        temp = pmb.helpers.http.download(url, "APKINDEX", False, logging.DEBUG, True, True)
+        temp = pmb.helpers.http.download(remote_index, "APKINDEX", False, logging.DEBUG, True, True)
         if not temp:
             if (
                 os.environ.get("PMB_APK_FORCE_MISSING_REPOSITORIES") == "1"
@@ -253,12 +237,12 @@ def update(arch: Arch | None = None, force: bool = False, existing_only: bool = 
     return True
 
 
-def alpine_apkindex(repo: str = "main", arch: Arch | None = None) -> Apkindex:
+def alpine_apkindex(repo: str, arch: Arch) -> Apkindex:
     """
     Get the path to a specific Alpine APKINDEX file on disk and download it if necessary.
 
     :param repo: Alpine repository name (e.g. "main")
-    :param arch: Alpine architecture (e.g. "armhf"), defaults to native arch.
+    :param arch: Alpine architecture (e.g. "armhf")
     :returns: full path to the APKINDEX file
     """
     # Repo sanity check
@@ -266,11 +250,10 @@ def alpine_apkindex(repo: str = "main", arch: Arch | None = None) -> Apkindex:
         raise RuntimeError(f"Invalid Alpine repository: {repo}")
 
     # Download the file
-    arch = arch or Arch.native()
     update(arch)
 
     # Find it on disk
     channel_cfg = pmb.config.pmaports.read_config_channel()
     repo_link = f"{get_context().config.mirrors['alpine']}{channel_cfg['mirrordir_alpine']}/{repo}"
     cache_folder = get_context().config.work / (f"cache_apk_{arch}")
-    return Apkindex(cache_folder / apkindex_hash(repo_link))
+    return Apkindex(cache_folder / apkrepo_hash(repo_link))
