@@ -4,14 +4,14 @@
 import copy
 import inspect
 from collections.abc import Callable
-from typing import Any, Generic, TypeVar, overload
+from typing import Any, Generic, ParamSpec, TypeVar
 
-FuncArgs = TypeVar("FuncArgs")
+FuncArgs = ParamSpec("FuncArgs")
 FuncReturn = TypeVar("FuncReturn")
 
 
 class Wrapper(Generic[FuncArgs, FuncReturn]):
-    def __init__(self, cache: "Cache", func: Callable[[FuncArgs], FuncReturn]) -> None:
+    def __init__(self, cache: "Cache", func: Callable[FuncArgs, FuncReturn]) -> None:
         self.cache = cache
         self.func = func
         self.disabled = False
@@ -24,7 +24,7 @@ class Wrapper(Generic[FuncArgs, FuncReturn]):
     # actually end up here. We first check if we have a cached
     # result and if not then we do the actual function call and
     # cache it if applicable
-    def __call__(self, *args: Any, **kwargs: Any) -> FuncReturn:
+    def __call__(self, *args: FuncArgs.args, **kwargs: FuncArgs.kwargs) -> FuncReturn:
         if self.disabled:
             return self.func(*args, **kwargs)
 
@@ -65,7 +65,7 @@ class Cache:
     we never want to use the cached result when called with force=True.
     """
 
-    def __init__(self, *args: str, cache_deepcopy: bool = False, **kwargs: Any) -> None:
+    def __init__(self, *args: str, cache_deepcopy: bool = False, **kwargs: object) -> None:
         for a in args:
             if not isinstance(a, str):
                 raise ValueError(f"Cache key must be a string, not {type(a)}")
@@ -80,7 +80,9 @@ class Cache:
 
     # Build the cache key, or return None to not cache in the case where
     # we only cache when an argument has a specific value
-    def build_key(self, func: Callable, *args: Any, **kwargs: Any) -> str | None:
+    def build_key(
+        self, func: Callable[FuncArgs, FuncReturn], *args: FuncArgs.args, **kwargs: FuncArgs.kwargs
+    ) -> str | None:
         key = "~"
         # Easy case: cache irrelevant of arguments
         if not self.params and not self.kwargs:
@@ -88,7 +90,7 @@ class Cache:
 
         signature = inspect.signature(func)
 
-        passed_args: dict[str, str] = {}
+        passed_args: dict[str, object] = {}
         for i, (k, val) in enumerate(signature.parameters.items()):
             if k in self.params or k in self.kwargs:
                 if i < len(args):
@@ -122,13 +124,7 @@ class Cache:
 
         return key
 
-    @overload
-    def __call__(self, func: Callable[..., FuncReturn]) -> Wrapper[None, FuncReturn]: ...
-
-    @overload
-    def __call__(self, func: Callable[[FuncArgs], FuncReturn]) -> Wrapper[FuncArgs, FuncReturn]: ...
-
-    def __call__(self, func: Callable[[FuncArgs], FuncReturn]) -> Wrapper[FuncArgs, FuncReturn]:
+    def __call__(self, func: Callable[FuncArgs, FuncReturn]) -> Wrapper[FuncArgs, FuncReturn]:
         argnames = func.__code__.co_varnames
         for a in self.params:
             if a not in argnames:
